@@ -1,15 +1,46 @@
-# Dependencies
+# Dependencias
 node_modules/
 
-# Build outputs
+# Compilados
 dist/
 dist_electron/
+*.tsbuildinfo
 
-# Environment and local files
-.netlify/
+# Variables de entorno locales
+# (.env.demo SÍ se sube: lo usa la publicación de la demo en GitHub Pages)
 .env
+.env.local
+.env.*.local
+
+# Copias de seguridad descargadas de la app (contienen datos reales del negocio)
+Hemma-copia_*.json
+Hemma-copia_*.xlsx
+
+# Pruebas y cachés
+coverage/
+.vite/
+.eslintcache
+
+# Firebase CLI
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+
+# Registros
+*.log
+npm-debug.log*
+
+# Editor y sistema
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.claude/settings.local.json
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Reserved Windows names (troubleshooting)
+# Restos de versiones anteriores
+.netlify/
+
+# Nombre reservado de Windows (problemas al clonar)
 nul

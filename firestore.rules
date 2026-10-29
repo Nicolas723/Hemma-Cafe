@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// Reglas de seguridad de Hemma POS: solo los EQUIPOS APROBADOS ven y guardan datos.
+//
+// Cada equipo abre una sesión anónima de Firebase (sin pedir nada) y tiene un
+// documento devices/{uid}. Un administrador aprueba los equipos nuevos desde
+// Ajustes → Equipos. Una copia del instalador en otro PC queda "pendiente" y no ve nada.
+//
+// ORDEN PARA PUBLICARLAS (ver README):
+//   1. Activar «Anónimo» en Firebase Authentication.
+//   2. Abrir la app nueva con internet en cada equipo (se registran aprobados solos).
+//   3. Revisar Ajustes → Equipos y luego publicar estas reglas.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function approved() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/devices/$(request.auth.uid))
+        && get(/databases/$(database)/documents/devices/$(request.auth.uid)).data.status == 'approved';
+    }
+
+    // Un equipo nuevo solo puede pedir acceso (estado "pending") y ver su propia solicitud.
+    match /devices/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || approved());
+      allow create: if request.auth != null && request.auth.uid == uid && request.resource.data.status == 'pending';
+      allow update, delete: if approved();
+    }
+
+    // Datos del negocio: solo equipos aprobados. La demo no usa la nube (demo_* cerrado).
+    match /{col}/{docId} {
+      allow read, write: if col != 'devices' && !col.matches('demo_.*') && approved();
+    }
+  }
+}

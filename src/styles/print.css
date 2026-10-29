@@ -1,0 +1,92 @@
+/* Recibo térmico de 80 mm: solo visible al imprimir. */
+.print-area {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+}
+
+.receipt {
+  width: 72mm;
+  padding: 2mm 4mm;
+  background: #fff;
+  color: #000;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.receipt__center {
+  text-align: center;
+}
+.receipt__brand {
+  font-size: 18px;
+  font-weight: 700;
+}
+.receipt__sep {
+  margin: 6px 0;
+  border-top: 1px dashed #000;
+}
+.receipt__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.receipt__table th {
+  text-align: left;
+  border-bottom: 1px solid #000;
+}
+.receipt__table td {
+  padding: 2px 0;
+  vertical-align: top;
+}
+.receipt__table .c {
+  text-align: center;
+  width: 10mm;
+}
+.receipt__table .r {
+  text-align: right;
+  width: 22mm;
+}
+.receipt__total {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  font-weight: 700;
+}
+.receipt__thanks {
+  margin-top: 10px;
+  font-style: italic;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+}
+
+/* Cierre impreso */
+.receipt__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.receipt__sign {
+  margin-top: 18px;
+}
