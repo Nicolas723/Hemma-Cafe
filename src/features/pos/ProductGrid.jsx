@@ -1,12 +1,12 @@
 import { memo } from "react";
-import { PackageSearch, Pencil, Tag } from "lucide-react";
+import { PackageSearch, Pencil, Tag, Lock } from "lucide-react";
 import { EmptyState } from "../../components/ui";
 import { formatCurrency, colorFor, initials } from "../../lib/format";
 import { useData } from "../../context/DataProvider";
 import { isFlexible, unitPrice } from "../../lib/pricing";
 import { useShowPhotos } from "../../lib/hooks";
 
-function ProductTile({ product, qty, priceType, promo, category, color, showPhotos, onPick }) {
+function ProductTile({ product, qty, priceType, promo, reservedQty = 0, category, color, showPhotos, onPick }) {
     const flex = isFlexible(product);
     const stock = product.quantity || 0;
     const out = !flex && stock <= 0;
@@ -70,7 +70,18 @@ function ProductTile({ product, qty, priceType, promo, category, color, showPhot
                         {flex ? "Precio libre" : formatCurrency(price)}
                         {discounted && <s>{formatCurrency(product.price)}</s>}
                     </span>
-                    {!flex && <span className={`tile__stock ${stock <= 5 ? "is-low" : ""}`}>{stock}</span>}
+                    {!flex &&
+                        (reservedQty > 0 ? (
+                            <span className="tile__stock tile__stock--reserved" title={`${stock} en stock: ${reservedQty} apartados para pedidos de hoy, ${Math.max(0, stock - reservedQty)} disponibles`}>
+                                {Math.max(0, stock - reservedQty)}
+                                <span className="tile__lock">
+                                    <Lock size={11} />
+                                    {reservedQty}
+                                </span>
+                            </span>
+                        ) : (
+                            <span className={`tile__stock ${stock <= 5 ? "is-low" : ""}`}>{stock}</span>
+                        ))}
                 </div>
             </div>
         </div>
@@ -79,7 +90,7 @@ function ProductTile({ product, qty, priceType, promo, category, color, showPhot
 
 const MemoTile = memo(ProductTile);
 
-export default function ProductGrid({ products, inCart, priceType, promos, categoriesById, onPick }) {
+export default function ProductGrid({ products, inCart, priceType, promos, reserved = {}, categoriesById, onPick }) {
     const [showPhotos] = useShowPhotos();
     const { categoryColor } = useData();
     if (products.length === 0) {
@@ -98,6 +109,7 @@ export default function ProductGrid({ products, inCart, priceType, promos, categ
                     qty={inCart[p.id] || 0}
                     priceType={priceType}
                     promo={promos[p.id]}
+                    reservedQty={reserved[p.id]?.qty || 0}
                     category={categoriesById[p.categoryId]}
                     color={categoryColor(p.categoryId)}
                     showPhotos={showPhotos}

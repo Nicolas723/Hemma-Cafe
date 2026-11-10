@@ -78,7 +78,8 @@ export function liveLine(line, productsById) {
 export function computeOrder({ cart, productsById, promos, priceType, customTotal }) {
     const lines = cart.map((raw) => {
         const line = liveLine(raw, productsById);
-        const promo = promos[line.id];
+        // Las líneas de un pedido ya traen el precio acordado (con promo incluida).
+        const promo = raw.fromOrder ? null : promos[line.id];
         const subtotal = lineSubtotal(line, priceType, promo);
         return { ...line, unit: unitPrice(line, priceType), subtotal, badge: lineBadge(line, priceType, promo) };
     });

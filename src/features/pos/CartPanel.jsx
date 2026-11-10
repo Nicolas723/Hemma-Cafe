@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Trash2, X, Printer, Wallet, Percent, Split, StickyNote, ShoppingBag, CheckCircle2, UserCircle2, Gift } from "lucide-react";
+import { Minus, Plus, Trash2, X, Printer, Wallet, Percent, Split, StickyNote, ShoppingBag, UserCircle2, Gift, Package, AlertTriangle } from "lucide-react";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
-import { EmptyState, MoneyInput, Toggle } from "../../components/ui";
+import { EmptyState, MoneyInput } from "../../components/ui";
 import { MethodPicker, SplitEditor, newSplitRow, splitRowsToPayments } from "../../components/PaymentMethods";
 import { DEFAULT_PAYMENT_METHODS, SERVICE_METHOD } from "../../lib/paymentIcons";
 import { PRICE_TYPES } from "../../lib/pricing";
@@ -15,7 +15,17 @@ const BILLS = [2000, 5000, 10000, 20000, 50000, 100000];
 /** Billetes útiles para el total: los 3 primeros que lo cubren. */
 const cashSuggestions = (total) => BILLS.filter((b) => b > total).slice(0, 3);
 
-export default function CartPanel({ pos, order, customer, onClose }) {
+/** Opción del pago en formato chip pequeño (ocupa mucho menos que un Toggle). */
+function OptChip({ icon: Icon, label, on, onClick }) {
+    return (
+        <button type="button" className={`opt-chip ${on ? "is-on" : ""}`} onClick={onClick} aria-pressed={on}>
+            <Icon size={14} />
+            <span>{label}</span>
+        </button>
+    );
+}
+
+export default function CartPanel({ pos, order, customer, orderInfo = null, orderClosed = false, onIncrease, onClose }) {
     const { vendedores, customers, paymentMethods, actions } = useData();
     const { showToast, showConfirm, printReceipt } = useUi();
     const { can } = useAuth();
@@ -39,9 +49,14 @@ export default function CartPanel({ pos, order, customer, onClose }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pos.activeTable]);
 
-    const tableLabel = readTables().find((t) => t.id === pos.activeTable)?.label || "Mostrador";
+    const tableLabel = orderInfo ? orderInfo.label : readTables().find((t) => t.id === pos.activeTable)?.label || "Mostrador";
     const empty = order.lines.length === 0;
-    const change = received !== "" ? parseInt(received, 10) - order.total : null;
+    // En un pedido se cobra solo el saldo: el anticipo ya entró a caja cuando se recibió.
+    const prepaid = orderInfo?.prepaid || 0;
+    const charge = Math.max(0, order.total - prepaid);
+    const refund = Math.max(0, prepaid - order.total);
+    const fromOrder = orderInfo ? { id: orderInfo.orderId, prepaid } : null;
+    const change = received !== "" ? parseInt(received, 10) - charge : null;
     const isCash = /efectivo/i.test(method);
     const needsVendor = !pos.vendedor;
 
@@ -57,12 +72,12 @@ export default function CartPanel({ pos, order, customer, onClose }) {
     };
 
     const payments = useMemo(
-        () => (split ? splitRowsToPayments(splitRows, order.total) : [{ method, amount: order.total }]),
-        [split, splitRows, method, order.total]
+        () => (split ? splitRowsToPayments(splitRows, charge) : [{ method, amount: charge }]),
+        [split, splitRows, method, charge]
     );
 
     const checkout = () => {
-        if (empty) return;
+        if (empty || orderClosed) return;
         if (needsVendor) {
             showToast("Elige quién atiende antes de cobrar", "warning");
             return;
@@ -73,20 +88,22 @@ export default function CartPanel({ pos, order, customer, onClose }) {
             vendedorName: pos.vendedor,
             payments,
             notes: pos.notes,
+            fromOrder,
         });
         pos.clearTable(pos.activeTable);
         setReceived("");
         setSplitRows([newSplitRow(methods[0]?.name)]);
         setMethod(methods[0]?.name || "Efectivo");
         onClose?.();
-        const changeMsg = isCash && change > 0 && !split ? ` · Cambio ${formatCurrency(change)}` : "";
-        showToast(`Venta de ${formatCurrency(tx.total)} registrada${changeMsg}`, "success", {
+        const changeMsg = tx.refund > 0 ? ` · Devuelve ${formatCurrency(tx.refund)} del anticipo` : isCash && change > 0 && !split ? ` · Cambio ${formatCurrency(change)}` : "";
+        showToast(`${fromOrder ? "Pedido entregado" : "Venta"} · ${formatCurrency(tx.total)} cobrado${changeMsg}`, "success", {
             label: "Imprimir",
             onClick: () => printReceipt(tx),
         });
     };
 
     const saveLoan = () => {
+        if (orderClosed) return;
         if (!customer) {
             showToast("Para fiar, primero elige el cliente", "warning");
             return;
@@ -95,10 +112,10 @@ export default function CartPanel({ pos, order, customer, onClose }) {
             showToast("Elige quién atiende", "warning");
             return;
         }
-        actions.saveLoan({ order, customer, vendedorName: pos.vendedor, notes: pos.notes });
+        actions.saveLoan({ order, customer, vendedorName: pos.vendedor, notes: pos.notes, fromOrder });
         pos.clearTable(pos.activeTable);
         onClose?.();
-        showToast(`Crédito de ${formatCurrency(order.subtotal)} anotado a ${customer.name}`, "success");
+        showToast(`Crédito de ${formatCurrency(Math.max(0, order.subtotal - prepaid))} anotado a ${customer.name}`, "success");
     };
 
     const printDraft = () =>
@@ -108,7 +125,8 @@ export default function CartPanel({ pos, order, customer, onClose }) {
             vendedorName: pos.vendedor,
             paymentMethod: split ? "Varios" : method,
             payments: split ? payments : null,
-            total: order.total,
+            total: charge,
+            prepaid: prepaid || undefined,
             notes: pos.notes,
             items: order.lines.map((l) => ({ name: l.name, cartQuantity: l.cartQuantity, subtotal: l.subtotal })),
         });
@@ -127,10 +145,24 @@ export default function CartPanel({ pos, order, customer, onClose }) {
 
     return (
         <aside className="cart">
+            {/* Encabezado compacto: mesa + cliente + acciones en una sola línea */}
             <div className="cart__head">
-                <div>
-                    <div className="cart__eyebrow">Orden actual</div>
-                    <h2 className="cart__title">{tableLabel}</h2>
+                <h2 className={`cart__title ${orderInfo ? "cart__title--order" : ""}`} title={orderInfo ? `Pedido de ${tableLabel}` : "Orden actual"}>
+                    {orderInfo && <Package size={17} />}
+                    {tableLabel}
+                </h2>
+                <div className="cart__customer">
+                    {(!orderInfo || !customer) && <UserCircle2 size={18} />}
+                    {/* En un pedido el cliente es el del pedido (salvo que lo hayan borrado: entonces se elige otro). */}
+                    {(!orderInfo || !customer) && <select className="select" value={pos.customerId} onChange={(e) => pos.setCustomerId(e.target.value)} title="Cliente">
+                        <option value="">Público general</option>
+                        {customers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                                {c.name}
+                            </option>
+                        ))}
+                    </select>}
+                    {customer && <span className={`tag tag--${customer.priceType || "special"}`}>{PRICE_TYPES[customer.priceType || "special"]?.label}</span>}
                 </div>
                 <div className="cart__head-actions">
                     {!empty && (
@@ -150,9 +182,9 @@ export default function CartPanel({ pos, order, customer, onClose }) {
                 </div>
             </div>
 
-            {/* Quién atiende: un toque */}
-            <div className={`cart__section ${needsVendor ? "needs-attention" : ""}`}>
-                <div className="cart__label">Atiende {needsVendor && <span className="req">· elige uno</span>}</div>
+            {/* Quién atiende: un toque, en una sola fila */}
+            <div className={`cart__staff ${needsVendor ? "needs-attention" : ""}`}>
+                <span className="cart__staff-label">{needsVendor ? "¿Quién atiende?" : "Atiende"}</span>
                 {vendedores.length <= 6 ? (
                     <div className="people">
                         {vendedores.map((v) => (
@@ -175,18 +207,11 @@ export default function CartPanel({ pos, order, customer, onClose }) {
                 )}
             </div>
 
-            <div className="cart__section cart__customer">
-                <UserCircle2 size={20} />
-                <select className="select" value={pos.customerId} onChange={(e) => pos.setCustomerId(e.target.value)}>
-                    <option value="">Cliente: Público general</option>
-                    {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                            {c.name}
-                        </option>
-                    ))}
-                </select>
-                {customer && <span className={`tag tag--${customer.priceType || "special"}`}>{PRICE_TYPES[customer.priceType || "special"]?.label}</span>}
-            </div>
+            {orderClosed && (
+                <div className="note note--warn cart__order-note">
+                    <AlertTriangle size={15} /> Este pedido ya se entregó o se canceló (quizá desde otro equipo). Vacía esta mesa.
+                </div>
+            )}
 
             <div className="cart__lines">
                 {empty ? (
@@ -208,7 +233,8 @@ export default function CartPanel({ pos, order, customer, onClose }) {
                                     {l.cartQuantity === 1 ? <Trash2 size={16} /> : <Minus size={16} />}
                                 </button>
                                 <span>{l.cartQuantity}</span>
-                                <button onClick={() => pos.changeQty(l.lineId, 1)} aria-label="Agregar uno">
+                                {/* onIncrease revisa lo reservado para pedidos antes de sumar */}
+                                <button onClick={() => (onIncrease ? onIncrease(l) : pos.changeQty(l.lineId, 1))} aria-label="Agregar uno">
                                     <Plus size={16} />
                                 </button>
                             </div>
@@ -221,11 +247,11 @@ export default function CartPanel({ pos, order, customer, onClose }) {
             {!empty && (
                 <>
                 <div className="cart__pay">
-                    <div className="cart__toggles">
-                        {can("discounts") && !courtesy && <Toggle icon={Percent} label="Descuento" checked={order.hasCustom} onChange={(on) => pos.setCustomTotal(on ? String(order.subtotal) : null)} />}
-                        {can("discounts") && <Toggle icon={Gift} label="Cortesía" checked={courtesy} onChange={setCourtesy} />}
-                        {!courtesy && <Toggle icon={Split} label="Dividir" checked={split} onChange={setSplit} />}
-                        <Toggle icon={StickyNote} label="Nota" checked={showNotes} onChange={setShowNotes} />
+                    <div className="cart__opts">
+                        {can("discounts") && !courtesy && <OptChip icon={Percent} label="Descuento" on={order.hasCustom} onClick={() => pos.setCustomTotal(order.hasCustom ? null : String(order.subtotal))} />}
+                        {can("discounts") && <OptChip icon={Gift} label="Cortesía" on={courtesy} onClick={() => setCourtesy(!courtesy)} />}
+                        {!courtesy && <OptChip icon={Split} label="Dividir" on={split} onClick={() => setSplit(!split)} />}
+                        <OptChip icon={StickyNote} label="Nota" on={showNotes} onClick={() => setShowNotes(!showNotes)} />
                     </div>
 
                     {order.hasCustom && can("discounts") && !courtesy && (
@@ -244,17 +270,17 @@ export default function CartPanel({ pos, order, customer, onClose }) {
                             <Gift size={15} /> Cortesía o consumo interno: no se cobra ({formatCurrency(order.subtotal)} en productos) y el stock sí se descuenta. Queda registrado.
                         </div>
                     ) : split ? (
-                        <SplitEditor methods={methods} rows={splitRows} onChange={setSplitRows} total={order.total} />
+                        <SplitEditor methods={methods} rows={splitRows} onChange={setSplitRows} total={charge} />
                     ) : (
                         <>
                             <MethodPicker methods={methods} value={method} onChange={selectMethod} compact />
                             {isCash && (
                                 <div className="cash">
                                     <div className="cash__quick">
-                                        <button className={`btn btn--soft btn--sm ${received === String(order.total) ? "is-active" : ""}`} onClick={() => setReceived(String(order.total))}>
+                                        <button className={`btn btn--soft btn--sm ${received === String(charge) ? "is-active" : ""}`} onClick={() => setReceived(String(charge))}>
                                             Exacto
                                         </button>
-                                        {cashSuggestions(order.total).map((b) => (
+                                        {cashSuggestions(charge).map((b) => (
                                             <button key={b} className={`btn btn--soft btn--sm ${received === String(b) ? "is-active" : ""}`} onClick={() => setReceived(String(b))}>
                                                 {formatCurrency(b)}
                                             </button>
@@ -277,28 +303,35 @@ export default function CartPanel({ pos, order, customer, onClose }) {
 
                 {/* Siempre visible: total y acciones nunca quedan fuera de pantalla */}
                 <div className="cart__footer">
-                    <div className="cart__total">
-                        <span>
-                            Total{order.hasCustom && <s className="muted"> {formatCurrency(order.subtotal)}</s>}
-                        </span>
-                        <strong>{formatCurrency(order.total)}</strong>
-                    </div>
+                    {order.hasCustom && (
+                        <div className="cart__subtotal">
+                            Subtotal <s>{formatCurrency(order.subtotal)}</s>
+                        </div>
+                    )}
+                    {prepaid > 0 && (
+                        <div className="cart__prepaid">
+                            <span>Total {formatCurrency(order.total)}</span>
+                            <span>Anticipo −{formatCurrency(prepaid)}</span>
+                        </div>
+                    )}
+                    {refund > 0 && <div className="cart__refund">Pagó de más: al cobrar se registra la devolución de {formatCurrency(refund)} en efectivo</div>}
                     <div className="cart__actions">
-                        <button className="btn btn--ghost btn--xl cart__icon-action" onClick={printDraft} title="Imprimir cuenta" aria-label="Imprimir cuenta">
-                            <Printer size={20} />
+                        <button className="btn btn--ghost cart__icon-action" onClick={printDraft} title="Imprimir cuenta" aria-label="Imprimir cuenta">
+                            <Printer size={18} />
                             <span>Cuenta</span>
                         </button>
                         <button
-                            className="btn btn--warn btn--xl cart__icon-action"
+                            className="btn btn--warn cart__icon-action"
                             onClick={saveLoan}
                             title={customer ? `Fiar a ${customer.name}` : "Elige un cliente para fiar"}
                             aria-label="Fiar"
                         >
-                            <Wallet size={20} />
+                            <Wallet size={18} />
                             <span>Fiar</span>
                         </button>
-                        <button className="btn btn--primary btn--xl cart__checkout" onClick={checkout} disabled={needsVendor} title="Cobrar (Ctrl+Enter)">
-                            <CheckCircle2 size={22} /> Cobrar
+                        <button className="btn btn--primary cart__checkout" onClick={checkout} disabled={needsVendor || orderClosed} title="Cobrar (Ctrl+Enter)">
+                            <span className="cart__checkout-label">{orderInfo ? (prepaid ? "Saldo" : "Entregar") : "Cobrar"}</span>
+                            <strong>{formatCurrency(charge)}</strong>
                         </button>
                     </div>
                 </div>

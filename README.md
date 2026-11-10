@@ -17,7 +17,7 @@ solo con Firebase al volver la conexión y se instala como app de escritorio en 
 
 ```
 src/
-├── main.jsx, App.jsx        Arranque, sesión, navegación (Alt+1…7) y copia automática semanal
+├── main.jsx, App.jsx        Arranque, sesión, navegación (Alt+1…8) y copia automática semanal
 ├── context/
 │   ├── AuthProvider.jsx     Usuarios, roles, sesión recordada y demo aislada (ingreso offline)
 │   ├── UiProvider.jsx       Avisos, confirmaciones e impresión de recibos
@@ -27,7 +27,7 @@ src/
 ├── lib/                     Utilidades puras: precios, créditos, reportes, copias, actividad, mesas, Excel…
 ├── components/              Piezas reutilizables (UI base, barra lateral, métodos de pago, recibo)
 ├── features/                Una carpeta por pantalla
-│   ├── auth/  pos/  loans/  history/  closing/  inventory/  reports/  settings/
+│   ├── auth/  pos/  orders/  loans/  history/  closing/  inventory/  reports/  settings/
 └── styles/                  theme · base · components · screens · print
 electron/                    Proceso principal y preload (impresión, actualizaciones, copias de seguridad)
 .github/workflows/pages.yml  Publica la demo pública en GitHub Pages
@@ -42,7 +42,7 @@ npm run electron:dev     # app de escritorio en modo desarrollo
 npm run electron:build   # instalador Windows 32 bits → dist_electron/Hemma-POS-Setup-x.y.z.exe
 npm run build            # web completa (dist/)
 npm run build:demo       # web pública SOLO con la demo (GitHub Pages)
-npm test                 # pruebas automáticas (precios, créditos, cierre, reportes, copias…)
+npm test                 # pruebas automáticas (precios, créditos, cierre, reportes, pedidos, usuarios…)
 ```
 
 > En VS Code la variable `ELECTRON_RUN_AS_NODE=1` puede estar definida: bórrala antes de abrir Electron.
@@ -68,8 +68,14 @@ en el mismo equipo, así que **se puede ingresar sin internet**.
 - **Usuario principal** `hemmacafe` (contraseña inicial: la de siempre). Siempre es administrador; se puede cambiar su
   nombre, usuario y contraseña, pero **no se puede eliminar ni desactivar**. La app lo crea sola la primera vez que se
   conecta a internet y avisa en *Ajustes* mientras conserve la contraseña inicial.
+- **Usuarios guardados en el equipo**: quien ingresa una vez queda como tarjeta en la pantalla de ingreso; al tocarla
+  solo se pide la contraseña. La × la quita del equipo y «Otro usuario» abre el formulario completo. Solo se guarda el id
+  del usuario (`pos_saved_users`), **nunca la contraseña**; los desactivados o eliminados desaparecen solos.
+- **Cambio de turno** (botón de salir de la barra lateral → menú): *Cambiar a…* pide solo la contraseña del otro usuario y
+  cambia la sesión **sin cerrarla** (las mesas y órdenes abiertas se mantienen; si la contraseña falla, sigue el anterior).
+  También ofrece *Otro usuario* y *Cerrar sesión*. Cada cambio queda en el registro de actividad.
 - **Recordar en este equipo** (casilla al ingresar, o *Ajustes → Sesión en este equipo*): la app abre **directo en la caja**.
-  Sin marcarla, la sesión dura solo mientras la app está abierta. «Salir» siempre olvida la sesión.
+  Sin marcarla, la sesión dura solo mientras la app está abierta. Cerrar sesión o cambiar de usuario la olvida.
   Si alguien cambia la contraseña de ese usuario, la sesión recordada deja de valer.
 - Tras 5 intentos fallidos el ingreso se bloquea 30 s.
 - **¿Olvidaste tu contraseña?** Otro administrador autoriza el cambio con su contraseña (funciona sin internet).
@@ -83,8 +89,10 @@ en el mismo equipo, así que **se puede ingresar sin internet**.
 
   | Permiso | Por defecto |
   |---|---|
-  | Aplicar descuentos y cortesías · Hacer el cierre de caja · Ajustar stock y registrar llegadas | Sí |
-  | Gestionar productos/categorías/promociones · Editar o anular ventas · Quitar productos de un crédito · Gestionar clientes y vendedores · Ver reportes · Descargar Excel | No |
+  | Aplicar descuentos y cortesías · Hacer el cierre de caja · Ver cierres anteriores · Ver ventas de días anteriores · Tomar y editar pedidos · Ajustar stock y registrar llegadas | Sí |
+  | Cancelar pedidos · Gestionar productos/categorías/promociones · Editar o anular ventas · Quitar productos de un crédito · Gestionar clientes y vendedores · Ver reportes · Descargar Excel | No |
+
+  Sin «Ver ventas/cierres anteriores» el cajero solo ve los de **hoy**.
 
   Los permisos están en `src/lib/permissions.js` y se consultan con `useAuth().can("permiso")`.
 
@@ -105,8 +113,31 @@ Puesta en marcha (en este orden):
 > Si publicas las reglas antes de los pasos 1 y 2, los equipos quedarán «pendientes» y habrá que aprobarlos desde
 > *Firestore → devices* (campo `status: "approved"`).
 
+## Pedidos (domicilios, encargos y preventas)
+
+Sección **Pedidos** (`features/orders`, lógica en `lib/orders.js`, diseño en `docs/superpowers/specs/2026-11-09-pedidos-design.md`).
+Un pedido **no es venta** hasta que se entrega y se cobra (o se fía).
+
+- **Agenda por día**: Atrasados (en rojo) · Hoy · próximos días · cualquier fecha. Cada pedido: cliente, domicilio o
+  recoger, hora, productos, dirección, nota, anticipo y saldo; botones *Listo*, *Entregar* y aviso por WhatsApp.
+- **Para preparar**: suma por producto de los pedidos del día contra el stock y marca lo que falta hornear.
+- **Formulario**: cliente registrado (o se crea al vuelo solo con el nombre, precio General), productos del catálogo o
+  «Especial» (precio libre), valor del domicilio, anticipo con método de pago y nota. Se respeta el **precio acordado**.
+- **Reservas**: los pedidos abiertos de **hoy y atrasados** apartan stock (los futuros no). Se **calcula**, no se guarda,
+  así nunca se descuadra entre equipos. La caja muestra `6 · 🔒4` (disponible · apartado) e Inventario «4 reservados».
+  Vender lo apartado (por la tarjeta, el buscador o el «+» de la orden) muestra un aviso rojo que bloquea; «No vender»
+  es la opción por defecto. El stock real solo baja al entregar.
+- **Entregar** abre el pedido en la caja como una mesa más («📦 Cliente»): se cobra solo el **saldo** o se fía.
+- **Dinero sin contar doble**: el anticipo es una transacción `type: "anticipo"` (cuenta en el cierre del día que se recibe;
+  en reportes es ingreso, no venta). La entrega guarda `total` = lo cobrado y `prepaid` = anticipos. Fiado: el anticipo
+  queda como abono ya hecho (precios intactos, saldo exacto). Cancelar con anticipo o pagar de más registra una salida de
+  caja «Devolución anticipo».
+- Colección `orders`; solo los abiertos se escuchan en vivo (los cerrados se consultan con «Ver cerrados»).
+
 ## Funciones del día a día
 
+- **Caja compacta** pensada para 1366×720: lo secundario va en filas pequeñas y el total va dentro del botón «Cobrar».
+- **Rueda del mouse** en los deslizables horizontales (mesas, categorías, días…): `lib/horizontalWheel.js`.
 - **Créditos**: abono por productos o **por monto** (se aplica primero a lo más antiguo; lo que no alcanza queda como abono parcial).
 - **Cortesía / consumo interno**: botón propio en la caja (total $0, descuenta stock, queda en el registro de actividad).
 - **Base de caja y salidas de caja**: en el cierre se escribe el efectivo con que se abrió (se suma) y se registran las

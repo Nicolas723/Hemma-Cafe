@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Store, UtensilsCrossed, ShoppingCart, LayoutGrid, Star, ArrowUpDown, ArrowUpFromLine } from "lucide-react";
+import { Store, UtensilsCrossed, ShoppingCart, LayoutGrid, Star, ArrowUpDown, ArrowUpFromLine, Package } from "lucide-react";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
@@ -10,17 +10,19 @@ import { formatCurrency } from "../../lib/format";
 import { useDebounced, useMediaQuery } from "../../lib/hooks";
 import { usePosState } from "./usePosState";
 import { readTables } from "../../lib/tables";
+import { orderMoney, reservationConflicts, reservedByProduct } from "../../lib/orders";
 import ProductGrid from "./ProductGrid";
 import CartPanel from "./CartPanel";
 import FlexiblePriceModal from "./FlexiblePriceModal";
+import ReserveWarningModal from "./ReserveWarningModal";
 
 const SORTS = [
     { value: "mostSold", label: "Más vendidos", icon: <Star size={14} /> },
     { value: "name", label: "A-Z", icon: <ArrowUpDown size={14} /> },
 ];
 
-export default function PosScreen() {
-    const { mode, products, productsById, categories, categoryColor, customers, promotions, transactions } = useData();
+export default function PosScreen({ incomingOrder, onConsumeOrder }) {
+    const { mode, products, productsById, categories, categoryColor, customers, promotions, transactions, orders, todayKey } = useData();
     const { showToast } = useUi();
     const pos = usePosState(mode, productsById, showToast);
     const { can } = useAuth();
@@ -32,6 +34,32 @@ export default function PosScreen() {
     const [sort, setSort] = useState("mostSold");
     const [flexProduct, setFlexProduct] = useState(null);
     const [sheetOpen, setSheetOpen] = useState(false);
+    const [reserveWarn, setReserveWarn] = useState(null); // { product, conflict }
+    const warnedRef = useRef(new Set()); // "mesa:producto" ya avisados (una vez por mesa y producto)
+
+    // «Entregar» desde Pedidos: el pedido llega aquí y se abre en su propia mesa.
+    useEffect(() => {
+        if (!incomingOrder) return;
+        pos.loadOrder(incomingOrder);
+        onConsumeOrder?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [incomingOrder]);
+
+    // Lo apartado para pedidos de hoy, sin contar el pedido que se está cobrando en esta mesa.
+    const activeOrderId = pos.activeOrder?.orderId || null;
+    const reserved = useMemo(() => reservedByProduct(orders, new Date(), activeOrderId ? [activeOrderId] : []), [orders, activeOrderId, todayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    const liveOrder = activeOrderId ? orders.find((o) => o.id === activeOrderId) : null;
+    const activeOrderOpen = !activeOrderId || Boolean(liveOrder);
+    // El anticipo se toma en vivo: si abonaron más después de abrir la mesa, la caja lo sabe.
+    const orderInfo = useMemo(
+        () => (pos.activeOrder ? { ...pos.activeOrder, prepaid: liveOrder ? orderMoney(liveOrder).prepaid : pos.activeOrder.prepaid } : null),
+        [pos.activeOrder, liveOrder]
+    );
+
+    // La mesa activa siempre a la vista (las de pedido quedan al final de la fila).
+    useEffect(() => {
+        document.querySelector(".tables .table-chip.is-active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, [pos.activeTable]);
     const searchRef = useRef(null);
     const isNarrow = useMediaQuery("(max-width: 900px)");
     const query = useDebounced(search.trim().toLowerCase(), 120);
@@ -76,13 +104,35 @@ export default function PosScreen() {
         [pos.tables, TABLES]
     );
 
-    const { addProduct } = pos;
+    const { addProduct, changeQty, activeTable } = pos;
+    /**
+     * Única revisión de lo reservado antes de sumar una unidad. La usan TODOS los
+     * caminos (tarjeta, buscador + Enter y el «+» de la orden): antes el «+» la saltaba.
+     */
+    const guardReserved = useCallback(
+        (product, proceed) => {
+            const key = `${activeTable}:${product.id}`;
+            const conflict = warnedRef.current.has(key) ? null : reservationConflicts({ productId: product.id, stock: product.quantity, inCart: inCart[product.id] || 0, reserved });
+            if (conflict) return setReserveWarn({ product, conflict, key, proceed });
+            proceed();
+        },
+        [activeTable, inCart, reserved]
+    );
     const pick = useCallback(
         (product) => {
-            if (isFlexible(product)) setFlexProduct(product);
-            else addProduct(product);
+            if (isFlexible(product)) return setFlexProduct(product);
+            guardReserved(product, () => addProduct(product));
         },
-        [addProduct]
+        [addProduct, guardReserved]
+    );
+    /** «+» de una línea de la orden (también las de un pedido: su producto real puede estar apartado para otros). */
+    const increaseLine = useCallback(
+        (line) => {
+            const product = productsById[line.id];
+            if (!product || isFlexible(product)) return changeQty(line.lineId, 1);
+            guardReserved(product, () => changeQty(line.lineId, 1));
+        },
+        [productsById, changeQty, guardReserved]
     );
     const categoriesById = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
 
@@ -120,6 +170,9 @@ export default function PosScreen() {
             pos={pos}
             order={order}
             customer={customer}
+            orderInfo={orderInfo}
+            orderClosed={!activeOrderOpen}
+            onIncrease={increaseLine}
             onClose={isNarrow ? () => setSheetOpen(false) : null}
         />
     );
@@ -142,6 +195,23 @@ export default function PosScreen() {
                                 <Icon size={18} />
                                 <span className="table-chip__label">{t.label}</span>
                                 <span className="table-chip__status">{count ? `${count} und.` : "Libre"}</span>
+                            </button>
+                        );
+                    })}
+                    {Object.entries(pos.orderTables).map(([id, meta]) => {
+                        const count = (pos.tables[id] || []).reduce((s, l) => s + l.cartQuantity, 0);
+                        return (
+                            <button
+                                key={id}
+                                role="tab"
+                                aria-selected={pos.activeTable === id}
+                                className={`table-chip table-chip--order ${pos.activeTable === id ? "is-active" : ""}`}
+                                onClick={() => pos.setActiveTable(id)}
+                                title={`Pedido de ${meta.label}`}
+                            >
+                                <Package size={18} />
+                                <span className="table-chip__label">{meta.label}</span>
+                                <span className="table-chip__status">Pedido · {count} und.</span>
                             </button>
                         );
                     })}
@@ -171,6 +241,7 @@ export default function PosScreen() {
                     inCart={inCart}
                     priceType={priceType}
                     promos={promos}
+                    reserved={reserved}
                     categoriesById={categoriesById}
                     onPick={pick}
                 />
@@ -202,6 +273,18 @@ export default function PosScreen() {
                     onConfirm={(price) => {
                         pos.addProduct(flexProduct, price);
                         setFlexProduct(null);
+                    }}
+                />
+            )}
+            {reserveWarn && (
+                <ReserveWarningModal
+                    product={reserveWarn.product}
+                    conflict={reserveWarn.conflict}
+                    onCancel={() => setReserveWarn(null)}
+                    onConfirm={() => {
+                        warnedRef.current.add(reserveWarn.key);
+                        reserveWarn.proceed();
+                        setReserveWarn(null);
                     }}
                 />
             )}

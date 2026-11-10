@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { UiProvider } from "./context/UiProvider";
 import ScrollTopButton from "./components/ScrollTopButton";
+import { installHorizontalWheel } from "./lib/horizontalWheel";
 import "./styles/theme.css";
 import "./styles/base.css";
 import "./styles/components.css";
@@ -13,6 +14,9 @@ import "./styles/print.css";
 if (!window.electron && "serviceWorker" in navigator && import.meta.env.PROD) {
     import("virtual:pwa-register").then(({ registerSW }) => registerSW({ immediate: true })).catch(() => {});
 }
+
+// La rueda del mouse también mueve los deslizables horizontales.
+installHorizontalWheel();
 
 ReactDOM.createRoot(document.getElementById("root")).render(
     <React.StrictMode>

@@ -22,7 +22,10 @@ export default function TransactionEditor({ transaction, onClose }) {
     const [method, setMethod] = useState(originalPays[0].method);
     const [rows, setRows] = useState(() => originalPays.map((p) => newSplitRow(p.method, String(p.amount))));
 
-    const total = items.reduce((s, i) => s + i.subtotal, 0);
+    const itemsTotal = items.reduce((s, i) => s + i.subtotal, 0);
+    // Entrega de un pedido: el anticipo ya se registró aparte; aquí solo cuenta lo cobrado al entregar.
+    const prepaid = transaction.prepaid || 0;
+    const total = Math.max(0, itemsTotal - prepaid);
     const matches = useMemo(() => {
         const q = search.trim().toLowerCase();
         return q ? products.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 6) : [];
@@ -116,8 +119,14 @@ export default function TransactionEditor({ transaction, onClose }) {
                 </div>
             )}
 
+            {prepaid > 0 && (
+                <div className="cart__prepaid">
+                    <span>Productos {formatCurrency(itemsTotal)}</span>
+                    <span>Anticipo del pedido −{formatCurrency(prepaid)}</span>
+                </div>
+            )}
             <div className="cart__total">
-                <span>Nuevo total</span>
+                <span>{prepaid > 0 ? "Cobrado en la entrega" : "Nuevo total"}</span>
                 <strong>{formatCurrency(total)}</strong>
             </div>
 

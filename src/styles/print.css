@@ -90,3 +90,7 @@
 .receipt__sign {
   margin-top: 18px;
 }
+.receipt__line {
+  display: flex;
+  justify-content: space-between;
+}

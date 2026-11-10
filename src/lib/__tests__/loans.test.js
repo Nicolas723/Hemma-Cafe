@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loanOutstanding, planFromAmount, planFromPicks, planTotal } from "../loans";
+import { applyPrepaid, loanOutstanding, planFromAmount, planFromPicks, planTotal } from "../loans";
 
 const old = { id: "a", dateObj: new Date(2026, 9, 1), items: [{ name: "Capuchino", price: 7500, cartQuantity: 2 }, { name: "Croissant", price: 6000, cartQuantity: 1 }] };
 const recent = { id: "b", dateObj: new Date(2026, 9, 5), items: [{ name: "Tinto", price: 2500, cartQuantity: 4 }] };
@@ -28,5 +28,26 @@ describe("abonos a créditos", () => {
         expect(planTotal([plan])).toBe(500);
         expect(plan.remaining).toEqual([{ name: "Tinto", price: 2500, cartQuantity: 3 }]);
         expect(loanOutstanding(withCredit) - 500).toBe(loanOutstanding({ items: plan.remaining }));
+    });
+});
+
+describe("crédito de un pedido con anticipo", () => {
+    const items = [
+        { id: "pan", name: "Pandebono", price: 2500, cartQuantity: 4, subtotal: 10000 },
+        { id: null, name: "Torta especial", price: 30000, cartQuantity: 1, subtotal: 30000 },
+        { id: "__domicilio", name: "Domicilio", price: 3000, cartQuantity: 1, subtotal: 3000 },
+    ];
+
+    it("el anticipo cubre productos en orden, sin tocar los precios, y deja el saldo exacto", () => {
+        const left = applyPrepaid(items, 12000);
+        expect(left.map((i) => i.name)).toEqual(["Torta especial", "Domicilio"]);
+        expect(left[0]).toMatchObject({ price: 30000, paid: 2000 });
+        expect(left[1].paid).toBeUndefined();
+        expect(loanOutstanding({ items: left })).toBe(31000);
+    });
+
+    it("sin anticipo no cambia nada; con anticipo mayor no queda deuda", () => {
+        expect(applyPrepaid(items, 0)).toEqual(items);
+        expect(loanOutstanding({ items: applyPrepaid(items, 50000) })).toBe(0);
     });
 });

@@ -21,6 +21,8 @@ export default function ClosingScreen({ onViewSales }) {
     const { transactions, performanceLogs, paymentMethods, cashOuts, actions } = useData();
     const { showToast, showConfirm, printClosing } = useUi();
     const { can, isAdmin, sessionUser } = useAuth();
+    // Sin este permiso (cajero) solo se ven los cierres de hoy.
+    const pastClosings = can("pastClosings");
     const [cashOutOpen, setCashOutOpen] = useState(false);
     const [counted, setCounted] = useState({});
     const [notes, setNotes] = useState("");
@@ -85,7 +87,7 @@ export default function ClosingScreen({ onViewSales }) {
     };
 
     const presetOptions = DATE_PRESETS.filter((p) => p.id !== "today" && p.id !== "yesterday").map((p) => ({ value: p.id, label: p.label }));
-    const range = DATE_PRESETS.find((p) => p.id === preset)?.range() || [null, null];
+    const range = pastClosings ? DATE_PRESETS.find((p) => p.id === preset)?.range() || [null, null] : DATE_PRESETS[0].range();
     const logs = performanceLogs.filter((l) => inRange(l.date, range));
 
     const exportExcel = async () => {
@@ -192,10 +194,11 @@ export default function ClosingScreen({ onViewSales }) {
 
             <div className="card card--flush">
                 <div className="section-head section-head--pad">
-                    <h2>Cierres anteriores</h2>
+                    <h2>{pastClosings ? "Cierres anteriores" : "Cierres de hoy"}</h2>
                     <div className="row-gap">
-                        <ChipGroup options={presetOptions} value={preset} onChange={setPreset} />
-                        {can("exportData") && (
+                        {pastClosings && <ChipGroup options={presetOptions} value={preset} onChange={setPreset} />}
+                        {/* El Excel incluye todos los cierres, así que requiere ver los anteriores */}
+                        {pastClosings && can("exportData") && (
                             <button className="btn btn--ghost" onClick={exportExcel} disabled={!performanceLogs.length}>
                                 <FileSpreadsheet size={18} /> Excel
                             </button>
@@ -203,7 +206,7 @@ export default function ClosingScreen({ onViewSales }) {
                     </div>
                 </div>
                 {logs.length === 0 ? (
-                    <EmptyState icon={ClipboardCheck} title="No hay cierres en este periodo" />
+                    <EmptyState icon={ClipboardCheck} title={pastClosings ? "No hay cierres en este periodo" : "Aún no hay cierres hoy"} />
                 ) : (
                     <div className="table-wrap">
                         <table className="table">

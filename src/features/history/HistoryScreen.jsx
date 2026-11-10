@@ -20,9 +20,12 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
     const { transactions, vendedores, paymentMethods, products, categories, liveSince, actions } = useData();
     const { showToast, printReceipt } = useUi();
     const { can } = useAuth();
+    // Sin este permiso (cajero) solo se ven las ventas de hoy.
+    const pastSales = can("pastSales");
 
-    const [preset, setPreset] = useState(initialRange ? "custom" : "today");
-    const [range, setRange] = useState(() => initialRange || DATE_PRESETS[0].range());
+    const [preset, setPreset] = useState(initialRange && pastSales ? "custom" : "today");
+    const [chosenRange, setRange] = useState(() => (pastSales && initialRange) || DATE_PRESETS[0].range());
+    const range = useMemo(() => (pastSales ? chosenRange : DATE_PRESETS[0].range()), [pastSales, chosenRange]);
     const [search, setSearch] = useState("");
     const [vendedor, setVendedor] = useState("");
     const [method, setMethod] = useState("");
@@ -107,11 +110,16 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
             filtered.forEach((t) => {
                 const d = toDate(t.date);
                 const pays = paymentsOf(t);
+                // El anticipo no tiene productos: una fila para que el dinero cuadre en el Excel.
+                if (t.type === "anticipo") {
+                    rows.push({ fecha: d.toLocaleDateString("es-CO"), hora: formatTime(d), tipo: "Anticipo pedido", vendedor: t.vendedorName || "N/A", cliente: t.customerName || "General", producto: "Anticipo", categoria: "", original: null, cantidad: 0, descuento: 0, subtotal: t.total, total: t.total, pago1: pays[0]?.method || "", pago2: "", notas: t.notes || "" });
+                    return;
+                }
                 (t.items || []).forEach((item, idx) =>
                     rows.push({
                         fecha: d.toLocaleDateString("es-CO"),
                         hora: formatTime(d),
-                        tipo: t.type === "abono" ? "Abono crédito" : "Venta",
+                        tipo: t.type === "abono" ? "Abono crédito" : t.orderId ? "Pedido" : "Venta",
                         vendedor: t.vendedorName || "N/A",
                         cliente: t.customerName || "General",
                         producto: item.name,
@@ -175,8 +183,12 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
             </PageHeader>
 
             <div className="card filters">
-                <ChipGroup options={presetOptions} value={preset} onChange={choosePreset} />
-                {preset === "custom" && (
+                {pastSales ? (
+                    <ChipGroup options={presetOptions} value={preset} onChange={choosePreset} />
+                ) : (
+                    <p className="muted small">Mostrando solo las ventas de hoy.</p>
+                )}
+                {pastSales && preset === "custom" && (
                     <div className="filters__dates">
                         <input type="date" className="input" value={toInputDate(range[0])} onChange={(e) => setRange([fromInputDate(e.target.value), range[1]])} />
                         <span className="muted">a</span>
@@ -256,6 +268,8 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
                                         <span className="tx__items muted">
                                             {unitsOf(t)} und.
                                             {t.type === "abono" && <span className="tag tag--warn">Abono</span>}
+                                            {t.type === "anticipo" && <span className="tag tag--warn">Anticipo</span>}
+                                            {t.orderId && t.type !== "anticipo" && <span className="tag tag--general">Pedido</span>}
                                             {t.notes && <StickyNote size={14} />}
                                         </span>
                                         <span className="tx__pays">
@@ -301,11 +315,12 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
                                                 <button className="btn btn--ghost" onClick={() => printReceipt(t)}>
                                                     <Printer size={16} /> Reimprimir
                                                 </button>
-                                                {can("editSales") && (
+                                                {can("editSales") && t.type !== "anticipo" && (
                                                     <button className="btn btn--soft" onClick={() => setEditing(t)}>
                                                         <Pencil size={16} /> Editar
                                                     </button>
                                                 )}
+                                                {t.type === "anticipo" && <span className="muted small">El anticipo se maneja desde Pedidos (si se cancela, se registra la devolución).</span>}
                                             </div>
                                         </div>
                                     )}

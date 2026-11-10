@@ -13,7 +13,8 @@ export default function PermissionsCard() {
             <p className="muted small">El administrador puede todo. Toca cada permiso para dárselo o quitárselo al cajero; el cambio llega a todos los equipos.</p>
             <div className="perm-list">
                 {PERMISSIONS.map((p) => {
-                    const on = Boolean(cashierPerms[p.key]);
+                    // Un permiso nuevo que aún no se ha guardado toma su valor por defecto.
+                    const on = Boolean(cashierPerms[p.key] ?? p.default);
                     return (
                         <button key={p.key} type="button" className={`perm ${on ? "is-on" : ""}`} onClick={() => setCashierPerm(p.key, !on)} aria-pressed={on}>
                             <span className="perm__icon">{on ? <Check size={16} /> : <X size={16} />}</span>

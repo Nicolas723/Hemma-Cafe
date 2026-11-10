@@ -28,7 +28,8 @@ export function previousRange([start, end]) {
     return [new Date(prevEnd.getTime() - len), prevEnd];
 }
 
-const isAbono = (t) => t.type === "abono";
+// Abonos a créditos y anticipos de pedidos: entra dinero pero no es una venta nueva.
+const isAbono = (t) => t.type === "abono" || t.type === "anticipo";
 const itemRevenue = (i) => i.subtotal ?? (i.price || 0) * (i.cartQuantity || 1);
 const paymentsOf = (t) => (t.payments?.length ? t.payments : [{ method: t.paymentMethod || "Efectivo", amount: t.total || 0 }]);
 

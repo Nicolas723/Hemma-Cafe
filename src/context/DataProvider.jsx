@@ -5,6 +5,7 @@ import { buildDemoDataset } from "../data/demoData";
 import { CATEGORY_COLORS, NO_CATEGORY_COLOR } from "../lib/format";
 import { DEFAULT_PAYMENT_METHODS } from "../lib/paymentIcons";
 import { addDays, startOfDay } from "../lib/dates";
+import { OPEN_STATUSES, dayKey, reservedByProduct } from "../lib/orders";
 import { useUi } from "./UiProvider";
 import { useAuth } from "./AuthProvider";
 
@@ -68,6 +69,14 @@ export function DataProvider({ db, mode, children }) {
     const promotions = useLiveQuery(() => col("promotions"), withId, [col]);
     const vendedores = useLiveQuery(() => col("vendedores"), withId, [col]);
     const loans = useLiveQuery(() => col("loans"), withId, [col]);
+    // Solo los pedidos abiertos van en vivo; los cerrados se consultan bajo demanda.
+    const orders = useLiveQuery(() => query(col("orders"), where("status", "in", OPEN_STATUSES)), withId, [col]);
+    // Cambia a medianoche: lo reservado depende de qué pedidos son "de hoy".
+    const [todayKey, setTodayKey] = useState(() => dayKey());
+    useEffect(() => {
+        const t = setInterval(() => setTodayKey((k) => (k === dayKey() ? k : dayKey())), 60000);
+        return () => clearInterval(t);
+    }, []);
     const paymentMethods = useLiveQuery(() => query(col("paymentMethods"), orderBy("order", "asc")), withId, [col]);
     const performanceLogs = useLiveQuery(() => query(col("dailyPerformance"), orderBy("date", "desc")), withDate, [col]);
     // Las ventas viejas guardaban la fecha como texto y las nuevas como Timestamp:
@@ -99,15 +108,20 @@ export function DataProvider({ db, mode, children }) {
             promotions: promotions.docs,
             vendedores: sortByName(vendedores.docs),
             loans: loans.docs,
+            orders: orders.docs,
+            todayKey,
+            // Unidades apartadas por pedidos de hoy y atrasados (ver lib/orders.js).
+            reservedById: reservedByProduct(orders.docs),
             paymentMethods: paymentMethods.docs,
             performanceLogs: performanceLogs.docs,
             cashOuts: cashOuts.docs,
             transactions,
             ready: products.ready && paymentMethods.ready,
             // En la demo todo queda "pendiente" para siempre (no hay red): no se muestra.
-            pendingSync: mode !== "demo" && (products.pending || loans.pending || txTs.pending || performanceLogs.pending),
+            pendingSync: mode !== "demo" && (products.pending || loans.pending || orders.pending || txTs.pending || performanceLogs.pending),
         };
-    }, [mode, cutoff, products, categories, customers, promotions, vendedores, loans, paymentMethods, performanceLogs, cashOuts, transactions, txTs.pending]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, cutoff, products, categories, customers, promotions, vendedores, loans, orders, todayKey, paymentMethods, performanceLogs, cashOuts, transactions, txTs.pending]);
 
     const dataRef = useRef(data);
     dataRef.current = data;

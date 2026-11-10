@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 // La caja carga al instante; el resto de secciones se descarga al abrirlas
 // (arranque más rápido en el PC con Windows 7).
 const LoansScreen = lazy(() => import("./features/loans/LoansScreen"));
+const OrdersScreen = lazy(() => import("./features/orders/OrdersScreen"));
 const HistoryScreen = lazy(() => import("./features/history/HistoryScreen"));
 const ClosingScreen = lazy(() => import("./features/closing/ClosingScreen"));
 const InventoryScreen = lazy(() => import("./features/inventory/InventoryScreen"));
@@ -65,9 +66,10 @@ function Shell() {
     const auth = useAuth();
     const [screen, setScreen] = useState("pos");
     const [historyRange, setHistoryRange] = useState(null);
+    const [incomingOrder, setIncomingOrder] = useState(null); // pedido que se lleva a la caja para entregarlo
     const isOnline = useOnlineStatus();
     const updater = useUpdater();
-    const { pendingSync, loans, products, col } = useData();
+    const { pendingSync, loans, products, orders, todayKey, col } = useData();
     const { showToast } = useUi();
 
     // Copia de seguridad automática semanal (solo app de escritorio, con internet).
@@ -103,10 +105,12 @@ function Shell() {
     const badges = useMemo(
         () => ({
             loans: new Set(loans.map((l) => l.customerId)).size || null,
+            // Pedidos para hoy y atrasados.
+            orders: orders.filter((o) => o.dueDate <= todayKey).length || null,
             inventory: products.filter((p) => !p.isPriceFlexible && (p.quantity || 0) <= LOW_STOCK).length || null,
             settings: auth.isAdmin && (updater.status === "available" || updater.status === "downloaded") ? "!" : null,
         }),
-        [loans, products, updater.status, auth.isAdmin]
+        [loans, products, orders, todayKey, updater.status, auth.isAdmin]
     );
 
     const openHistory = (date) => {
@@ -130,7 +134,15 @@ function Shell() {
             <main className={`main ${current === "pos" ? "main--pos" : ""}`}>
                 <ErrorBoundary resetKey={current}>
                 <Suspense fallback={<div className="screen-loading"><Loader2 size={28} className="spin" /></div>}>
-                {current === "pos" && <PosScreen />}
+                {current === "pos" && <PosScreen incomingOrder={incomingOrder} onConsumeOrder={() => setIncomingOrder(null)} />}
+                {current === "orders" && (
+                    <OrdersScreen
+                        onDeliver={(order) => {
+                            setIncomingOrder(order);
+                            setScreen("pos");
+                        }}
+                    />
+                )}
                 {current === "loans" && <LoansScreen />}
                 {current === "history" && <HistoryScreen initialRange={historyRange} onConsumeRange={() => setHistoryRange(null)} />}
                 {current === "closing" && <ClosingScreen onViewSales={openHistory} />}

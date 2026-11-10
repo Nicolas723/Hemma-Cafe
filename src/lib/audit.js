@@ -11,6 +11,7 @@ export const AUDIT_TYPES = {
     sale: { label: "Ventas", tone: "brand" },
     stock: { label: "Inventario", tone: "info" },
     loan: { label: "Créditos", tone: "warn" },
+    order: { label: "Pedidos", tone: "info" },
     closing: { label: "Cierres", tone: "brand" },
     users: { label: "Usuarios", tone: "danger" },
     settings: { label: "Ajustes", tone: "info" },

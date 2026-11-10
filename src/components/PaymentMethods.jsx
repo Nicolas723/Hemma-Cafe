@@ -6,7 +6,11 @@ import { MoneyInput } from "./ui";
 /** Métodos de pago como botones grandes: un solo toque (antes era un <select>). */
 export function MethodPicker({ methods, value, onChange, compact }) {
     return (
-        <div className={`methods ${compact ? "methods--compact" : ""}`} role="radiogroup">
+        <div
+            className={`methods ${compact ? "methods--compact" : ""}`}
+            role="radiogroup"
+            style={compact ? { "--cols": methods.length <= 6 ? methods.length : Math.ceil(methods.length / 2) } : undefined}
+        >
             {methods.map((m) => (
                 <button
                     key={m.id || m.name}

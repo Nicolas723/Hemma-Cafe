@@ -17,6 +17,7 @@ import {
 import { DEFAULT_CASHIER_PERMS, PERMISSIONS, hasPermission } from "../lib/permissions";
 import { logAudit } from "../lib/audit";
 import { DEMO_ONLY } from "../lib/env";
+import { SAVED_USERS_KEY, addSavedUser, removeSavedUser, resolveSavedUsers } from "../lib/savedUsers";
 
 /**
  * Acceso con USUARIO y CONTRASEÑA (sin correos):
@@ -239,11 +240,28 @@ export function AuthProvider({ children }) {
 
     const remembered = !isDemo && Boolean(readJSON(SESSION_KEY, null));
 
+    // Acceso rápido: usuarios que ya ingresaron en este equipo (solo ids, nunca contraseñas).
+    const [savedIds, setSavedIds] = useState(() => readJSON(SAVED_USERS_KEY, []));
+    const saveIds = (next) => {
+        setSavedIds(next);
+        writeJSON(SAVED_USERS_KEY, next);
+    };
+    const savedUsers = useMemo(() => {
+        if (isDemo) return Object.values(DEMO_GUESTS);
+        // Equipos que vienen de la versión anterior: se arranca con el último usuario que ingresó.
+        const last = readString(LAST_USERNAME_KEY);
+        const ids = savedIds.length ? savedIds : users.filter((u) => u.username === last).map((u) => u.id);
+        return resolveSavedUsers(ids, users);
+    }, [isDemo, savedIds, users]);
+    // «Otro usuario» desde el menú de salir: la pantalla de ingreso abre el formulario completo.
+    const [loginHint, setLoginHint] = useState("");
+
     const startSession = (user, remember) => {
         if (modeRef.current === "demo") {
             setDemoSessionId(user.id);
             return;
         }
+        saveIds(addSavedUser(readJSON(SAVED_USERS_KEY, []), user.id));
         const s = { id: user.id, stamp: stampOf(user) };
         if (remember) writeJSON(SESSION_KEY, s);
         else writeString(SESSION_KEY, "");
@@ -338,9 +356,43 @@ export function AuthProvider({ children }) {
             return { ok: true };
         },
 
-        logout() {
+        /** Cierra la sesión. `{ other: true }`: la pantalla de ingreso abre usuario + contraseña. */
+        logout({ other = false } = {}) {
+            setLoginHint(other ? "other" : "");
             if (modeRef.current === "demo") setDemoSessionId("");
             else clearSession();
+        },
+
+        savedUsers,
+        loginHint,
+        clearLoginHint: () => setLoginHint(""),
+        /** Quita un usuario del acceso rápido de este equipo. */
+        forgetSavedUser(id) {
+            const base = savedIds.length ? savedIds : savedUsers.map((u) => u.id);
+            saveIds(removeSavedUser(base, id));
+        },
+
+        /**
+         * Cambio de turno sin cerrar la sesión: solo si la contraseña es correcta se pasa
+         * al otro usuario. «Recordar en este equipo» se apaga (cada uno lo activa si quiere).
+         */
+        async switchUser(userId, password) {
+            if (modeRef.current === "demo") {
+                if (Object.values(DEMO_GUESTS).some((g) => g.id === userId)) setDemoSessionId(userId);
+                return { ok: true };
+            }
+            const wait = lockedFor();
+            if (wait > 0) return { error: `Demasiados intentos. Espera ${wait} s.` };
+            const user = users.find((u) => u.id === userId);
+            if (!user || user.active === false || !(await verifyPassword(password, user))) {
+                const until = registerFailure();
+                return { error: until ? "Demasiados intentos fallidos. Espera 30 s." : "Contraseña incorrecta" };
+            }
+            writeJSON(LOCK_KEY, { count: 0, until: 0 });
+            const previous = sessionUser?.displayName || "";
+            startSession(user, false);
+            audit("Ingresó", previous ? `Cambio de usuario (antes: ${previous})` : "Cambio de usuario", user);
+            return { ok: true };
         },
 
         /** Activar o quitar «Recordar en este equipo» para la sesión actual. */

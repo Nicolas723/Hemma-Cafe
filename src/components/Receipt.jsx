@@ -3,7 +3,7 @@ import { formatCurrency, toDate } from "../lib/format";
 /** Recibo de 80 mm. Solo es visible al imprimir (ver styles/print.css). */
 export default function Receipt({ transaction }) {
     if (!transaction) return null;
-    const { date, customerName, vendedorName, items = [], total, paymentMethod, payments, notes } = transaction;
+    const { date, customerName, vendedorName, items = [], total, paymentMethod, payments, notes, prepaid } = transaction;
     const methods =
         payments && payments.length > 1
             ? payments.map((p) => `${p.method} ${formatCurrency(p.amount)}`).join(" + ")
@@ -45,8 +45,20 @@ export default function Receipt({ transaction }) {
                 </tbody>
             </table>
             <div className="receipt__sep" />
+            {prepaid > 0 && (
+                <>
+                    <div className="receipt__line">
+                        <span>Total pedido</span>
+                        <span>{formatCurrency(total + prepaid)}</span>
+                    </div>
+                    <div className="receipt__line">
+                        <span>Anticipo</span>
+                        <span>-{formatCurrency(prepaid)}</span>
+                    </div>
+                </>
+            )}
             <div className="receipt__total">
-                <span>TOTAL</span>
+                <span>{prepaid > 0 ? "SALDO" : "TOTAL"}</span>
                 <span>{formatCurrency(total)}</span>
             </div>
             <div>

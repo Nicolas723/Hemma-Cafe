@@ -4,6 +4,8 @@ import { transactionItems } from "../lib/pricing";
 import { logAudit } from "../lib/audit";
 import { formatCurrency } from "../lib/format";
 import { isSameDay, startOfDay, endOfDay } from "../lib/dates";
+import { DEPOSIT_TX_TYPE, orderMoney } from "../lib/orders";
+import { applyPrepaid } from "../lib/loans";
 
 const BATCH_LIMIT = 400;
 export const OTRO_PRODUCT = { name: "Otro", price: 0, quantity: 999999, categoryId: "", isPriceFlexible: true }; // Firestore admite 500 operaciones por lote; dejamos margen.
@@ -65,37 +67,54 @@ export function createActions({ db, col, getData, getUser, notify }) {
 
     return {
         // ───────────────────────── Caja ─────────────────────────
-        checkout({ order, customerName, vendedorName, payments, notes }) {
+        /**
+         * `fromOrder` ({ id, prepaid }): la mesa es un pedido. Se cobra solo el saldo
+         * (el anticipo ya entró a caja el día que se recibió) y el pedido queda entregado.
+         */
+        checkout({ order, customerName, vendedorName, payments, notes, fromOrder = null }) {
             const { productsById } = getData();
             const primary = payments[0]?.method || "Efectivo";
+            const prepaid = fromOrder?.prepaid || 0;
+            const charged = Math.max(0, order.total - prepaid);
+            const refund = Math.max(0, prepaid - order.total);
             const tag = primary === "Servicio" ? "(Cortesía)" : order.hasCustom ? "(Descuento personalizado)" : "";
-            const finalNotes = [notes, tag].filter(Boolean).join(" ");
+            const orderTag = fromOrder ? `(Pedido${prepaid ? ` · anticipo ${formatCurrency(prepaid)}` : ""})` : "";
+            const finalNotes = [notes, tag, orderTag].filter(Boolean).join(" ");
 
+            const now = new Date();
             const txRef = doc(col("transactions"));
             const transaction = {
-                date: new Date(),
+                date: now,
                 customerName: customerName || "General",
                 vendedorName,
                 paymentMethod: primary,
-                payments,
+                payments: fromOrder && charged === 0 ? [{ method: primary, amount: 0 }] : payments,
                 notes: finalNotes,
-                total: order.total,
+                total: charged,
                 items: transactionItems(order, productsById),
                 registeredBy: userName(),
+                ...(fromOrder ? { orderId: fromOrder.id, ...(prepaid ? { prepaid } : {}) } : {}),
             };
             const batch = writeBatch(db);
             batch.set(txRef, transaction);
             adjustStock(batch, quantitiesByProduct(order.lines), -1);
+            if (fromOrder) {
+                batch.update(ref("orders", fromOrder.id), { status: "delivered", deliveredAt: now, updatedAt: now, txId: txRef.id });
+                // Pagó de más por adelantado (se quitaron productos): se le devuelve en efectivo.
+                if (refund > 0) batch.set(doc(col("cashOuts")), { date: now, amount: refund, concept: `Devolución anticipo · ${customerName || "Cliente"}`, registeredBy: userName() });
+            }
             fireAndForget(batch.commit(), notify, "La venta no se sincronizó aún");
             if (primary === "Servicio") audit("sale", "Registró una cortesía", `${formatCurrency(order.subtotal)} en productos · ${customerName || "General"}`);
             else if (order.hasCustom) audit("sale", "Aplicó un descuento", `${formatCurrency(order.subtotal)} → ${formatCurrency(order.total)} · ${customerName || "General"}`);
-            return { id: txRef.id, ...transaction };
+            return { id: txRef.id, ...transaction, refund };
         },
 
-        saveLoan({ order, customer, vendedorName, notes }) {
+        /** `fromOrder` ({ id, prepaid }): el anticipo queda como abono ya hecho; se debe solo el saldo. */
+        saveLoan({ order, customer, vendedorName, notes, fromOrder = null }) {
             const now = new Date();
             const { productsById } = getData();
-            const items = order.lines.map((l) => ({
+            const prepaid = fromOrder?.prepaid || 0;
+            const allItems = order.lines.map((l) => ({
                 id: l.id,
                 name: l.name,
                 ...(productsById[l.id]?.cost > 0 ? { cost: productsById[l.id].cost } : {}),
@@ -104,13 +123,16 @@ export function createActions({ db, col, getData, getUser, notify }) {
                 subtotal: l.subtotal,
                 dateAdded: now.toISOString(),
             }));
+            const items = applyPrepaid(allItems, prepaid);
+            const loanRef = doc(col("loans"));
             const batch = writeBatch(db);
-            batch.set(doc(col("loans")), {
+            // Si el anticipo ya lo cubría todo no queda nada que deber: no se crea un crédito vacío.
+            if (items.length) batch.set(loanRef, {
                 customerId: customer.id,
                 customerName: customer.name,
                 vendedorName,
                 items,
-                notes: notes || "",
+                notes: [notes, prepaid ? `Pedido con anticipo de ${formatCurrency(prepaid)} ya descontado` : fromOrder ? "Pedido" : ""].filter(Boolean).join(" · "),
                 date: now,
                 createdAt: now,
                 lastUpdated: now,
@@ -118,7 +140,77 @@ export function createActions({ db, col, getData, getUser, notify }) {
                 registeredBy: userName(),
             });
             adjustStock(batch, quantitiesByProduct(order.lines), -1);
+            if (fromOrder) batch.update(ref("orders", fromOrder.id), { status: "delivered", deliveredAt: now, updatedAt: now, loanId: loanRef.id });
             fireAndForget(batch.commit(), notify, "El crédito no se sincronizó aún");
+        },
+
+        // ──────────────────────── Pedidos ────────────────────────
+        /** Crea (sin `id`) o actualiza un pedido. Devuelve su id. */
+        saveOrder(data, id = null) {
+            const now = new Date();
+            const fields = {
+                customerId: data.customerId,
+                customerName: data.customerName,
+                phone: data.phone || "",
+                address: data.kind === "delivery" ? data.address || "" : "",
+                kind: data.kind,
+                dueDate: data.dueDate,
+                dueTime: data.dueTime || "",
+                items: data.items,
+                deliveryFee: data.kind === "delivery" ? Number(data.deliveryFee) || 0 : 0,
+                notes: data.notes || "",
+                updatedAt: now,
+            };
+            if (id) {
+                fireAndForget(updateDoc(ref("orders", id), fields), notify, "El pedido no se sincronizó aún");
+                return id;
+            }
+            const orderRef = doc(col("orders"));
+            fireAndForget(setDoc(orderRef, { ...fields, status: "pending", deposits: [], createdAt: now, createdBy: userName() }), notify, "El pedido no se sincronizó aún");
+            return orderRef.id;
+        },
+
+        /** Anticipo: entra a caja hoy (transacción tipo «anticipo», sin productos) y se anota en el pedido. */
+        addOrderDeposit(order, { amount, method, vendedorName }) {
+            const now = new Date();
+            const deposit = { amount, method, date: now.toISOString(), registeredBy: userName() };
+            const batch = writeBatch(db);
+            batch.update(ref("orders", order.id), { deposits: [...(order.deposits || []), deposit], updatedAt: now });
+            batch.set(doc(col("transactions")), {
+                date: now,
+                type: DEPOSIT_TX_TYPE,
+                customerName: order.customerName,
+                vendedorName: vendedorName || "",
+                paymentMethod: method,
+                payments: [{ method, amount }],
+                total: amount,
+                items: [],
+                orderId: order.id,
+                notes: `Anticipo pedido de ${order.customerName} para el ${order.dueDate.split("-").reverse().join("/")}`,
+                registeredBy: userName(),
+            });
+            fireAndForget(batch.commit(), notify, "El anticipo no se sincronizó aún");
+        },
+
+        setOrderStatus(order, status) {
+            fireAndForget(updateDoc(ref("orders", order.id), { status, updatedAt: new Date() }), notify, "El pedido no se sincronizó aún");
+        },
+
+        /** Cancela y libera la reserva. Si hubo anticipo, se devuelve como salida de caja. */
+        cancelOrder(order) {
+            const now = new Date();
+            const { prepaid } = orderMoney(order);
+            const batch = writeBatch(db);
+            batch.update(ref("orders", order.id), { status: "cancelled", cancelledAt: now, updatedAt: now, cancelledBy: userName() });
+            if (prepaid > 0) batch.set(doc(col("cashOuts")), { date: now, amount: prepaid, concept: `Devolución anticipo · ${order.customerName}`, registeredBy: userName() });
+            fireAndForget(batch.commit(), notify, "La cancelación no se sincronizó aún");
+            audit("order", "Canceló un pedido", `${order.customerName} · ${order.dueDate}${prepaid ? ` · devolvió ${formatCurrency(prepaid)}` : ""}`);
+        },
+
+        /** Pedidos cerrados (entregados o cancelados) con entrega desde `sinceKey` ("AAAA-MM-DD"). */
+        async loadClosedOrders(sinceKey) {
+            const snap = await getDocs(query(col("orders"), where("dueDate", ">=", sinceKey)));
+            return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((o) => o.status === "delivered" || o.status === "cancelled");
         },
 
         /**
@@ -167,7 +259,8 @@ export function createActions({ db, col, getData, getUser, notify }) {
         updateTransaction(transaction, newItems, payments) {
             const batch = writeBatch(db);
             const txRef = ref("transactions", transaction.id);
-            const total = newItems.reduce((s, i) => s + (i.subtotal ?? i.price * (i.cartQuantity || 1)), 0);
+            // En la entrega de un pedido el anticipo ya entró a caja otro día: el total es lo cobrado en la entrega.
+            const total = Math.max(0, newItems.reduce((s, i) => s + (i.subtotal ?? i.price * (i.cartQuantity || 1)), 0) - (transaction.prepaid || 0));
 
             if (newItems.length === 0) {
                 batch.delete(txRef);
@@ -322,6 +415,12 @@ export function createActions({ db, col, getData, getUser, notify }) {
             }
             fireAndForget(addDoc(col("customers"), { name: name.trim(), priceType }), notify, "El cliente no se sincronizó aún");
             return true;
+        },
+        /** Cliente creado desde un pedido: precio general, datos opcionales. Devuelve el id. */
+        quickAddCustomer({ name, phone = "", address = "" }) {
+            const customerRef = doc(col("customers"));
+            fireAndForget(setDoc(customerRef, { name: name.trim(), priceType: "general", ...(phone ? { phone } : {}), ...(address ? { address } : {}) }), notify, "El cliente no se sincronizó aún");
+            return customerRef.id;
         },
         updateCustomer: (id, data) => fireAndForget(updateDoc(ref("customers", id), data), notify, "El cliente no se sincronizó aún"),
         deleteCustomer(id) {

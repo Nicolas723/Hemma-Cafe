@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { LogIn, Lock, Eye, EyeOff, KeyRound, Sparkles, WifiOff, ShieldCheck, Loader2, User, Check } from "lucide-react";
+import { LogIn, Lock, Eye, EyeOff, KeyRound, Sparkles, WifiOff, ShieldCheck, Loader2, User, Check, X, ArrowLeft, UserPlus } from "lucide-react";
+import { initials } from "../../lib/format";
 import { useAuth, LAST_USERNAME_KEY } from "../../context/AuthProvider";
 import { useOnlineStatus } from "../../lib/hooks";
 import { readString } from "../../lib/storage";
@@ -94,10 +95,41 @@ export function NeedInternet() {
     );
 }
 
+export const roleLabel = (role) => (role === "admin" ? "Administrador" : "Cajero");
+
+/** Tarjetas de los usuarios guardados en este equipo: tocar una pide solo la contraseña. */
+function SavedUserPicker({ users, onPick, onForget, onOther }) {
+    return (
+        <div className="saved-users">
+            <div className="saved-users__title">¿Quién ingresa?</div>
+            <div className="saved-users__grid">
+                {users.map((u) => (
+                    <div key={u.id} className="saved-user">
+                        <button type="button" className="saved-user__main" onClick={() => onPick(u)}>
+                            <span className={`saved-user__avatar ${u.role === "admin" ? "is-admin" : ""}`}>{initials(u.displayName)}</span>
+                            <b>{u.displayName}</b>
+                            <span className="muted small">{roleLabel(u.role)}</span>
+                        </button>
+                        <button type="button" className="saved-user__forget" onClick={() => onForget(u)} title="Quitar de este equipo" aria-label={`Quitar a ${u.displayName} de este equipo`}>
+                            <X size={14} />
+                        </button>
+                    </div>
+                ))}
+            </div>
+            <button type="button" className="btn btn--ghost btn--block" onClick={onOther}>
+                <UserPlus size={18} /> Otro usuario
+            </button>
+        </div>
+    );
+}
+
 /** Ingreso con usuario y contraseña. «Recordar» abre directo en la caja la próxima vez. */
 export function StaffLogin() {
-    const { login, rememberDefault } = useAuth();
-    const [username, setUsername] = useState(() => readString(LAST_USERNAME_KEY));
+    const { login, rememberDefault, savedUsers, forgetSavedUser, loginHint, clearLoginHint } = useAuth();
+    // Con usuarios guardados se muestran las tarjetas; «Otro usuario» abre el formulario completo.
+    const [showForm, setShowForm] = useState(() => loginHint === "other" || savedUsers.length === 0);
+    const [picked, setPicked] = useState(null);
+    const [username, setUsername] = useState(() => (loginHint === "other" ? "" : readString(LAST_USERNAME_KEY)));
     const [password, setPassword] = useState("");
     const [remember, setRemember] = useState(rememberDefault);
     const [error, setError] = useState("");
@@ -107,9 +139,11 @@ export function StaffLogin() {
 
     const submit = async (e) => {
         e.preventDefault();
-        if (!username.trim() || !password) return;
+        const uname = picked ? picked.username : username;
+        if (!uname.trim() || !password) return;
         setBusy(true);
-        const res = await login(username, password, remember);
+        const res = await login(uname, password, remember);
+        if (res.ok) clearLoginHint();
         setBusy(false);
         if (res.error) {
             setError(res.error);
@@ -127,14 +161,53 @@ export function StaffLogin() {
         </>
     );
 
+    const pickUser = (u) => {
+        setPicked(u);
+        setPassword("");
+        setError("");
+    };
+    const back = () => {
+        setPicked(null);
+        setPassword("");
+        setError("");
+        if (savedUsers.length) setShowForm(false);
+    };
+
+    if (!picked && !showForm && savedUsers.length > 0) {
+        return (
+            <AuthLayout title="Bienvenido" subtitle="Toca tu usuario e ingresa tu contraseña" footer={footer}>
+                <SavedUserPicker
+                    users={savedUsers}
+                    onPick={pickUser}
+                    onForget={(u) => forgetSavedUser(u.id)}
+                    onOther={() => {
+                        setUsername("");
+                        setShowForm(true);
+                    }}
+                />
+                {forgot && <ForgotPassword initialUsername="" onClose={() => setForgot(false)} />}
+            </AuthLayout>
+        );
+    }
+
     return (
-        <AuthLayout title="Bienvenido" subtitle="Ingresa con tu usuario y contraseña" footer={footer}>
+        <AuthLayout title={picked ? `Hola, ${picked.displayName.split(" ")[0]}` : "Bienvenido"} subtitle={picked ? "Ingresa tu contraseña" : "Ingresa con tu usuario y contraseña"} footer={footer}>
             <form onSubmit={submit} className="login__form">
-                <label className="login__field">
-                    <User size={18} />
-                    <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Usuario" autoComplete="username" autoFocus={!username} autoCapitalize="none" />
-                </label>
-                <PasswordField value={password} onChange={setPassword} inputRef={passRef} autoFocus={Boolean(username)} />
+                {picked ? (
+                    <div className="login__picked">
+                        <span className={`saved-user__avatar ${picked.role === "admin" ? "is-admin" : ""}`}>{initials(picked.displayName)}</span>
+                        <span>
+                            <b>{picked.displayName}</b>
+                            <small>{roleLabel(picked.role)}</small>
+                        </span>
+                    </div>
+                ) : (
+                    <label className="login__field">
+                        <User size={18} />
+                        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Usuario" autoComplete="username" autoFocus={!username} autoCapitalize="none" />
+                    </label>
+                )}
+                <PasswordField key={picked?.id || "form"} value={password} onChange={setPassword} inputRef={passRef} autoFocus={Boolean(picked || username)} />
                 <button type="button" className={`check ${remember ? "is-on" : ""}`} onClick={() => setRemember((v) => !v)} aria-pressed={remember}>
                     <span className="check__box">{remember && <Check size={14} />}</span>
                     <span>
@@ -143,11 +216,16 @@ export function StaffLogin() {
                     </span>
                 </button>
                 <ErrorMsg>{error}</ErrorMsg>
-                <button type="submit" className="btn btn--primary btn--xl btn--block" disabled={busy || !username.trim() || !password}>
+                <button type="submit" className="btn btn--primary btn--xl btn--block" disabled={busy || !(picked || username.trim()) || !password}>
                     {busy ? <Loader2 size={20} className="spin" /> : <LogIn size={20} />} Ingresar
                 </button>
+                {(picked || savedUsers.length > 0) && (
+                    <button type="button" className="btn btn--ghost btn--block" onClick={back}>
+                        <ArrowLeft size={18} /> {picked ? "Otro usuario guardado" : "Volver a los usuarios guardados"}
+                    </button>
+                )}
             </form>
-            {forgot && <ForgotPassword initialUsername={username} onClose={() => setForgot(false)} />}
+            {forgot && <ForgotPassword initialUsername={picked?.username || username} onClose={() => setForgot(false)} />}
         </AuthLayout>
     );
 }

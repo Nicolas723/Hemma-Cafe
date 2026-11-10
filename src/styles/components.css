@@ -729,9 +729,11 @@ textarea.input {
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 0.5rem;
 }
+/* Compacto (panel de la orden): todos los métodos en una sola fila,
+   icono arriba y nombre abajo para que quepan sin cortarse */
 .methods--compact {
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 0.4rem;
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
+  gap: 0.3rem;
 }
 .method {
   display: flex;
@@ -750,9 +752,19 @@ textarea.input {
   transition: background var(--t-fast), border-color var(--t-fast);
 }
 .methods--compact .method {
-  flex-direction: row;
-  gap: 0.35rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
   min-height: 44px;
+  padding: 0.25rem 0.1rem;
+  font-size: 0.7rem;
+  line-height: 1.1;
+}
+.methods--compact .method span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .method:hover {
   border-color: var(--brand-500);

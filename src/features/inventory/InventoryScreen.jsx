@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { Package, Plus, Upload, Download, FileSpreadsheet, Pencil, Trash2, Minus, Tags, BadgePercent, AlertTriangle, ArrowUpDown, PackageSearch, Truck, ChefHat } from "lucide-react";
+import { Package, Plus, Upload, Download, FileSpreadsheet, Pencil, Trash2, Minus, Tags, BadgePercent, AlertTriangle, ArrowUpDown, PackageSearch, Truck, ChefHat, Lock } from "lucide-react";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
@@ -34,7 +34,7 @@ const COLUMNS = [
 ];
 
 export default function InventoryScreen() {
-    const { products, categories, categoryColor, actions } = useData();
+    const { products, categories, categoryColor, reservedById, actions } = useData();
     const { showToast, showConfirm } = useUi();
     const { can, isAdmin } = useAuth();
     // El costo es información sensible: solo el administrador lo ve y lo exporta.
@@ -243,6 +243,14 @@ export default function InventoryScreen() {
                                                                 <button onClick={() => actions.adjustProductStock(p.id, 1)} aria-label="Sumar stock">
                                                                     <Plus size={14} />
                                                                 </button>
+                                                            </div>
+                                                        )}
+                                                        {!flex && reservedById[p.id] && (
+                                                            <div
+                                                                className="reserved-tag"
+                                                                title={`Apartado (no vendido) para: ${reservedById[p.id].orders.map((o) => `${o.customerName} (${o.qty})`).join(", ")}`}
+                                                            >
+                                                                <Lock size={11} /> {reservedById[p.id].qty} reservado{reservedById[p.id].qty === 1 ? "" : "s"}
                                                             </div>
                                                         )}
                                                     </td>

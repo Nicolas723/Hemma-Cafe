@@ -1,8 +1,11 @@
-import { ShoppingCart, Wallet, Receipt, Calculator, Package, Settings, BarChart3, LogOut, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { ShoppingCart, Wallet, Receipt, Calculator, Package, Settings, BarChart3, LogOut, Wifi, WifiOff, RefreshCw, ClipboardList } from "lucide-react";
+import { useState } from "react";
 import { initials } from "../lib/format";
+import UserMenu from "./UserMenu";
 
 export const SCREENS = [
     { id: "pos", label: "Caja", icon: ShoppingCart },
+    { id: "orders", label: "Pedidos", icon: ClipboardList },
     { id: "loans", label: "Créditos", icon: Wallet },
     { id: "history", label: "Ventas", icon: Receipt },
     { id: "closing", label: "Cierre", icon: Calculator, perm: "closing" },
@@ -12,6 +15,7 @@ export const SCREENS = [
 ];
 
 export default function Sidebar({ screens = SCREENS, active, onChange, badges = {}, isOnline, pendingSync, isDemo, user, onLogout }) {
+    const [menuOpen, setMenuOpen] = useState(false);
     return (
         <nav className="sidebar" aria-label="Secciones">
             <div className="sidebar__brand">
@@ -50,13 +54,20 @@ export default function Sidebar({ screens = SCREENS, active, onChange, badges = 
                     {isOnline ? pendingSync ? <RefreshCw size={18} className="spin" /> : <Wifi size={18} /> : <WifiOff size={18} />}
                     <span>{isOnline ? (pendingSync ? "Sincronizando" : "En línea") : "Sin conexión"}</span>
                 </div>
-                <button className="sidebar__item sidebar__logout" onClick={onLogout} title={user ? `${user.displayName} · cerrar sesión` : "Cerrar sesión"}>
+                <button
+                    className={`sidebar__item sidebar__logout ${menuOpen ? "is-open" : ""}`}
+                    onClick={() => setMenuOpen((v) => !v)}
+                    title={user ? `${user.displayName} · cambiar de usuario o salir` : "Salir"}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                >
                     <span className="sidebar__icon">
                         {user ? <span className="sidebar__user">{initials(user.displayName)}</span> : <LogOut size={22} />}
                     </span>
                     <span className="sidebar__label">{isDemo ? "Salir demo" : "Salir"}</span>
                 </button>
             </div>
+            {menuOpen && <UserMenu user={user} isDemo={isDemo} onLogout={onLogout} onClose={() => setMenuOpen(false)} />}
         </nav>
     );
 }

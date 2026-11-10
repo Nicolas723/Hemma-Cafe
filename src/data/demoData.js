@@ -1,5 +1,6 @@
 import { DEFAULT_PAYMENT_METHODS } from "../lib/paymentIcons";
 import { OTRO_PRODUCT } from "./actions";
+import { dayKey } from "../lib/orders";
 
 /**
  * Datos de muestra de la DEMO. Se generan al entrar y viven solo en memoria:
@@ -126,7 +127,21 @@ export function buildDemoDataset() {
         const total = items.reduce((s, i) => s + i.subtotal, 0);
         return { date: daysAgo(d, h, m), customerName, vendedorName, paymentMethod: method, payments: [{ method, amount: total }], notes: "", total, items };
     });
-    const transactions = [...recent, ...history()];
+    // Pedidos de muestra: uno atrasado, varios para hoy (reservan stock) y uno para mañana.
+    const orderLine = (id, q, unit = byId[id].price) => ({ id, name: byId[id].name, price: unit, cartQuantity: q, subtotal: unit * q });
+    const due = (d) => dayKey(daysAgo(-d, 12));
+    const orders = [
+        { customerId: "ana", customerName: "Ana Gómez", phone: "3109876543", address: "", kind: "pickup", dueDate: due(-1), dueTime: "17:00", items: [orderLine("masamadre", 1)], deliveryFee: 0, deposits: [], notes: "", status: "pending" },
+        {
+            customerId: "marta", customerName: "Doña Marta", phone: "3001234567", address: "Cra 5 #12-30, casa esquinera", kind: "delivery", dueDate: due(0), dueTime: "11:30",
+            items: [orderLine("croissant", 3, 5200), orderLine("torta", 1, 8500)], deliveryFee: 4000,
+            deposits: [{ amount: 10000, method: "Nequi", date: daysAgo(0, 8, 5).toISOString(), registeredBy: "Laura" }], notes: "Tocar el timbre dos veces", status: "pending",
+        },
+        { customerId: "julian", customerName: "Julián Ríos", phone: "", address: "", kind: "pickup", dueDate: due(0), dueTime: "15:00", items: [orderLine("almojabana", 3, 2500), orderLine("tinto", 2, 2200)], deliveryFee: 0, deposits: [], notes: "", status: "ready" },
+        { customerId: "oficina", customerName: "Oficina Calle 10", phone: "", address: "Calle 10 #4-55, piso 2", kind: "delivery", dueDate: due(1), dueTime: "08:00", items: [orderLine("pandebono", 20, 1800), orderLine("tinto", 10, 2000)], deliveryFee: 0, deposits: [], notes: "Reunión de las 8", status: "pending" },
+    ].map((o, i) => ({ id: `demo-pedido-${i}`, ...o, createdAt: daysAgo(1, 10), updatedAt: daysAgo(1, 10), createdBy: "Laura" }));
+    const deposits = [{ date: daysAgo(0, 8, 5), type: "anticipo", customerName: "Doña Marta", vendedorName: "Laura", paymentMethod: "Nequi", payments: [{ method: "Nequi", amount: 10000 }], total: 10000, items: [], orderId: "demo-pedido-1", notes: "Anticipo pedido de Doña Marta", registeredBy: "Laura" }];
+    const transactions = [...recent, ...deposits, ...history()];
     const loanItems = (lines, d) => lines.map(([id, q]) => ({ ...item(id, q), dateAdded: daysAgo(d, 9).toISOString() }));
 
     return {
@@ -141,7 +156,9 @@ export function buildDemoDataset() {
             { id: "marta", name: "Doña Marta", priceType: "special", phone: "3001234567" },
             { id: "oficina", name: "Oficina Calle 10", priceType: "wholesale" },
             { id: "julian", name: "Julián Ríos", priceType: "special" },
+            { id: "ana", name: "Ana Gómez", priceType: "general", phone: "3109876543" },
         ],
+        orders,
         promotions: [{ productId: "pandebono", quantity: 5, price: 2000, type: "bulk" }, { productId: "croissant", quantity: 2, price: 11000, type: "pack" }],
         transactions,
         loans: [

@@ -64,6 +64,27 @@ export function planFromAmount(loans, amount) {
     return plans;
 }
 
+/**
+ * Crédito de un pedido que ya tenía anticipo: el anticipo se aplica como un abono
+ * ya hecho, en el orden de los productos. Los que quedan cubiertos no se deben;
+ * el que alcanza a medias lleva `paid`. Los precios no se tocan y el saldo es exacto.
+ */
+export function applyPrepaid(items, amount) {
+    let left = Math.max(0, Math.round(amount || 0));
+    if (!left) return items;
+    const out = [];
+    for (const item of items) {
+        const owed = itemOutstanding(item);
+        if (left >= owed) {
+            left -= owed;
+            continue;
+        }
+        out.push(left > 0 ? { ...item, paid: (item.paid || 0) + left } : item);
+        left = 0;
+    }
+    return out;
+}
+
 export const planTotal = (plans) => plans.reduce((s, p) => s + p.paidItems.reduce((t, i) => t + (i.subtotal || 0), 0), 0);
 
 // Firestore no acepta `undefined`.

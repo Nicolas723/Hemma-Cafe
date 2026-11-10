@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJSON, readString, writeJSON, writeString } from "../../lib/storage";
 import { isFlexible } from "../../lib/pricing";
+import { orderCartLines, orderMoney } from "../../lib/orders";
+
+/** Las mesas de pedido usan este prefijo: "pedido:<id del pedido>". */
+export const ORDER_TABLE_PREFIX = "pedido:";
 
 // Las mesas se configuran por equipo en Ajustes (ver lib/tables.js).
 
@@ -35,12 +39,15 @@ export function usePosState(mode, productsById, notify) {
     const [customTotals, setCustomTotals] = useState(() => (readJSON(k("pos_custom_totals"), {})));
     const [notes, setNotes] = useState(() => (readJSON(k("pos_notes_state"), {})));
     const [vendedor, setVendedor] = useState(() => readString(k("selectedVendedor")));
+    // Pedidos cargados en la caja para entregarlos: { [tableId]: { orderId, prepaid, label } }.
+    const [orderTables, setOrderTables] = useState(() => readJSON(k("pos_order_tables"), {}));
 
     useEffect(() => writeJSON(k("pos_tables_state"), tables), [tables]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => writeJSON(k("pos_customers_state"), customers), [customers]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => writeJSON(k("pos_custom_totals"), customTotals), [customTotals]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => writeJSON(k("pos_notes_state"), notes), [notes]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => writeString(k("selectedVendedor"), vendedor), [vendedor]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => writeJSON(k("pos_order_tables"), orderTables), [orderTables]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const stockOf = useCallback((id) => productsById[id]?.quantity ?? 0, [productsById]);
 
@@ -99,7 +106,38 @@ export function usePosState(mode, productsById, notify) {
         setCustomers((prev) => ({ ...prev, [tableId]: "" }));
         setCustomTotals((prev) => ({ ...prev, [tableId]: null }));
         setNotes((prev) => ({ ...prev, [tableId]: "" }));
+        // Una mesa de pedido desaparece al cobrarla, fiarla o vaciarla.
+        if (tableId.startsWith(ORDER_TABLE_PREFIX)) {
+            setOrderTables((prev) => {
+                const next = { ...prev };
+                delete next[tableId];
+                return next;
+            });
+            setTables((prev) => {
+                const next = { ...prev };
+                delete next[tableId];
+                return next;
+            });
+            setActiveTable((cur) => (cur === tableId ? "mostrador" : cur));
+        }
     }, []);
+
+    /** Carga un pedido en su propia mesa para cobrarlo o fiarlo (si ya estaba, solo la abre). */
+    const loadOrder = useCallback(
+        (order) => {
+            const tableId = `${ORDER_TABLE_PREFIX}${order.id}`;
+            const meta = { orderId: order.id, prepaid: orderMoney(order).prepaid, label: order.customerName };
+            setOrderTables((prev) => ({ ...prev, [tableId]: meta }));
+            if (!orderTables[tableId]) {
+                setTables((prev) => ({ ...prev, [tableId]: orderCartLines(order) }));
+                setCustomers((prev) => ({ ...prev, [tableId]: order.customerId || "" }));
+                setCustomTotals((prev) => ({ ...prev, [tableId]: null }));
+                setNotes((prev) => ({ ...prev, [tableId]: order.notes || "" }));
+            }
+            setActiveTable(tableId);
+        },
+        [orderTables]
+    );
 
     const setFor = (setter) => (value) => setter((prev) => ({ ...prev, [activeTable]: value }));
 
@@ -120,5 +158,8 @@ export function usePosState(mode, productsById, notify) {
         changeQty,
         removeLine,
         clearTable,
+        orderTables,
+        activeOrder: orderTables[activeTable] || null,
+        loadOrder,
     };
 }

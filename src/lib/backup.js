@@ -17,6 +17,7 @@ export const BACKUP_COLLECTIONS = [
     "promotions",
     "vendedores",
     "loans",
+    "orders",
     "paymentMethods",
     "dailyPerformance",
     "transactions",
