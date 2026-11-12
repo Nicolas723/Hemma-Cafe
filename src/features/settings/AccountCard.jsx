@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { KeyRound, Save, MonitorCheck, LogIn } from "lucide-react";
+import { KeyRound, Save } from "lucide-react";
 import { useAuth } from "../../context/AuthProvider";
 import { useUi } from "../../context/UiProvider";
-import { Toggle } from "../../components/ui";
 import { PasswordField } from "../auth/AuthScreens";
 import { passwordProblem } from "../../lib/passwords";
 
@@ -43,24 +42,5 @@ export function MyPasswordCard() {
                 <Save size={18} /> Cambiar mi contraseña
             </button>
         </form>
-    );
-}
-
-/** «Recordar en este equipo»: con la sesión guardada la app abre directo en la caja. */
-export function SessionCard() {
-    const { sessionUser, remembered, setRemember } = useAuth();
-    if (!sessionUser || sessionUser.isGuest) return null;
-    return (
-        <section className="card stack">
-            <h2 className="card-title">
-                <MonitorCheck size={20} /> Sesión en este equipo
-            </h2>
-            <Toggle icon={LogIn} label="Recordar mi sesión" checked={remembered} onChange={setRemember} />
-            <p className="muted small">
-                {remembered
-                    ? "La app abre directo en la caja. Al tocar «Salir» se olvida y se vuelve a pedir la contraseña."
-                    : "Al cerrar la app se pedirá usuario y contraseña de nuevo."}
-            </p>
-        </section>
     );
 }

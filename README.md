@@ -74,9 +74,9 @@ en el mismo equipo, así que **se puede ingresar sin internet**.
 - **Cambio de turno** (botón de salir de la barra lateral → menú): *Cambiar a…* pide solo la contraseña del otro usuario y
   cambia la sesión **sin cerrarla** (las mesas y órdenes abiertas se mantienen; si la contraseña falla, sigue el anterior).
   También ofrece *Otro usuario* y *Cerrar sesión*. Cada cambio queda en el registro de actividad.
-- **Recordar en este equipo** (casilla al ingresar, o *Ajustes → Sesión en este equipo*): la app abre **directo en la caja**.
-  Sin marcarla, la sesión dura solo mientras la app está abierta. Cerrar sesión o cambiar de usuario la olvida.
-  Si alguien cambia la contraseña de ese usuario, la sesión recordada deja de valer.
+- **La sesión dura mientras el programa está abierto** (`sessionStorage`): sobrevive a recargar la ventana, pero al cerrar
+  y volver a abrir la app siempre se pregunta quién ingresa. (Ya no existe «Recordar en este equipo»; la
+  sesión recordada de versiones anteriores se borra sola.) Si alguien cambia la contraseña, la sesión deja de valer.
 - Tras 5 intentos fallidos el ingreso se bloquea 30 s.
 - **¿Olvidaste tu contraseña?** Otro administrador autoriza el cambio con su contraseña (funciona sin internet).
   Si el olvidado es el principal y no hay otro administrador: en *Firebase Console → Firestore → users* borra el documento
@@ -137,6 +137,12 @@ Un pedido **no es venta** hasta que se entrega y se cobra (o se fía).
 ## Funciones del día a día
 
 - **Caja compacta** pensada para 1366×720: lo secundario va en filas pequeñas y el total va dentro del botón «Cobrar».
+- **Un producto entra una sola vez** a la orden: si ya está, tocarlo resalta su línea; la cantidad se cambia con + / −
+  (el «+» también revisa lo reservado para pedidos). «Otro» (precio libre) sí agrega una línea nueva cada vez.
+- **Cumpleaños de clientes** (opcional, día y mes en `customers.birthday` como `MM-DD`): se edita en *Ajustes → Clientes*
+  o en el pedido; Pedidos muestra los de hoy y los próximos 7 días con botón para felicitar por WhatsApp (`lib/birthdays.js`).
+- **Corregir el nombre de un cliente** desde el pedido (lápiz): cambia la ficha, sus pedidos abiertos y sus créditos;
+  las ventas ya hechas conservan el nombre con que se registraron.
 - **Rueda del mouse** en los deslizables horizontales (mesas, categorías, días…): `lib/horizontalWheel.js`.
 - **Créditos**: abono por productos o **por monto** (se aplica primero a lo más antiguo; lo que no alcanza queda como abono parcial).
 - **Cortesía / consumo interno**: botón propio en la caja (total $0, descuenta stock, queda en el registro de actividad).

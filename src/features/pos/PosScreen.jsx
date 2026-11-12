@@ -35,6 +35,7 @@ export default function PosScreen({ incomingOrder, onConsumeOrder }) {
     const [flexProduct, setFlexProduct] = useState(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [reserveWarn, setReserveWarn] = useState(null); // { product, conflict }
+    const [flash, setFlash] = useState(null); // { lineId, n }: línea de la orden que parpadea
     const warnedRef = useRef(new Set()); // "mesa:producto" ya avisados (una vez por mesa y producto)
 
     // «Entregar» desde Pedidos: el pedido llega aquí y se abre en su propia mesa.
@@ -121,9 +122,12 @@ export default function PosScreen({ incomingOrder, onConsumeOrder }) {
     const pick = useCallback(
         (product) => {
             if (isFlexible(product)) return setFlexProduct(product);
+            // Un producto entra UNA vez: si ya está, se resalta su línea y la cantidad se cambia con + / −.
+            const existing = pos.cart.find((l) => l.id === product.id);
+            if (existing) return setFlash({ lineId: existing.lineId, n: Date.now() });
             guardReserved(product, () => addProduct(product));
         },
-        [addProduct, guardReserved]
+        [addProduct, guardReserved, pos.cart]
     );
     /** «+» de una línea de la orden (también las de un pedido: su producto real puede estar apartado para otros). */
     const increaseLine = useCallback(
@@ -173,6 +177,7 @@ export default function PosScreen({ incomingOrder, onConsumeOrder }) {
             orderInfo={orderInfo}
             orderClosed={!activeOrderOpen}
             onIncrease={increaseLine}
+            flash={flash}
             onClose={isNarrow ? () => setSheetOpen(false) : null}
         />
     );

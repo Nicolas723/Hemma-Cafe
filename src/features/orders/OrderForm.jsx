@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { ClipboardList, Bike, ShoppingBag, Plus, Minus, Trash2, UserPlus, X, PencilLine, Ban, Save, Coins } from "lucide-react";
+import { ClipboardList, Bike, ShoppingBag, Plus, Minus, Trash2, UserPlus, X, PencilLine, Ban, Save, Coins, Pencil, Check } from "lucide-react";
+import BirthdayInput from "../../components/BirthdayInput";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
@@ -55,8 +56,13 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
     const [depositMethod, setDepositMethod] = useState(methods[0]?.name || "Efectivo");
     const [productQuery, setProductQuery] = useState("");
     const productSearchRef = useRef(null);
+    const [birthday, setBirthday] = useState(() => customers.find((c) => c.id === order?.customerId)?.birthday || "");
+    const [renaming, setRenaming] = useState(false);
+    const [nameDraft, setNameDraft] = useState("");
+    const [renamedTo, setRenamedTo] = useState(""); // nombre corregido aquí (antes de que llegue la ficha actualizada)
 
     const customer = customers.find((c) => c.id === customerId) || null;
+    const customerName = renamedTo || customer?.name || newCustomerName;
     const priceType = customer ? customer.priceType || "special" : newCustomerName ? "general" : null;
     const promos = useMemo(() => promoMap(promotions), [promotions]);
 
@@ -70,6 +76,8 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
         setCustomerQuery("");
         if (!phone && c.phone) setPhone(c.phone);
         if (!address && c.address) setAddress(c.address);
+        setBirthday(c.birthday || "");
+        setRenamedTo("");
     };
     const createCustomer = () => {
         setNewCustomerName(customerQuery.trim());
@@ -79,6 +87,22 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
     const clearCustomer = () => {
         setCustomerId("");
         setNewCustomerName("");
+        setRenamedTo("");
+        setRenaming(false);
+    };
+    /** Corregir el nombre aquí mismo: en un cliente existente se cambia en su ficha, pedidos y créditos. */
+    const confirmRename = () => {
+        const next = nameDraft.trim();
+        if (!next) return showToast("Escribe el nombre", "warning");
+        if (customer) {
+            const res = actions.renameCustomer(customer.id, next);
+            if (res.error) return showToast(res.error, "warning");
+            setRenamedTo(next);
+            showToast("Nombre del cliente actualizado", "success");
+        } else {
+            setNewCustomerName(next);
+        }
+        setRenaming(false);
     };
 
     // ── Productos ──
@@ -116,7 +140,7 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
     const tomorrow = dayKey(addDays(new Date(), 1));
 
     const save = () => {
-        const name = customer?.name || newCustomerName;
+        const name = customerName;
         if (!name) return showToast("Elige o crea el cliente del pedido", "warning");
         if (!dueDate) return showToast("Elige la fecha de entrega", "warning");
         if (priced.length === 0) return showToast("Agrega al menos un producto", "warning");
@@ -124,10 +148,15 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
         if (newDeposit > money.due) return showToast("El anticipo no puede ser mayor que el saldo", "warning");
 
         let id = customerId;
-        if (!id) id = actions.quickAddCustomer({ name, phone: phone.trim(), address: kind === "delivery" ? address.trim() : "" });
-        else if (customer && ((phone.trim() && phone.trim() !== (customer.phone || "")) || (kind === "delivery" && address.trim() && address.trim() !== (customer.address || "")))) {
+        if (!id) id = actions.quickAddCustomer({ name, phone: phone.trim(), address: kind === "delivery" ? address.trim() : "", birthday });
+        else if (customer) {
             // Se completa la ficha del cliente con lo que se escribió aquí.
-            actions.updateCustomer(id, { ...(phone.trim() ? { phone: phone.trim() } : {}), ...(kind === "delivery" && address.trim() ? { address: address.trim() } : {}) });
+            const patch = {
+                ...(phone.trim() && phone.trim() !== (customer.phone || "") ? { phone: phone.trim() } : {}),
+                ...(kind === "delivery" && address.trim() && address.trim() !== (customer.address || "") ? { address: address.trim() } : {}),
+                ...(birthday !== (customer.birthday || "") ? { birthday } : {}),
+            };
+            if (Object.keys(patch).length) actions.updateCustomer(id, patch);
         }
 
         const items = priced.map((l) => ({ id: l.id, name: l.name.trim(), price: l.unit, cartQuantity: l.qty, subtotal: l.subtotal }));
@@ -172,17 +201,54 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
     );
 
     return (
-        <Modal title={editing ? `Pedido de ${order.customerName}` : "Nuevo pedido"} icon={ClipboardList} onClose={onClose} size="lg" footer={footer}>
+        <Modal title={editing ? `Pedido de ${customerName || order.customerName}` : "Nuevo pedido"} icon={ClipboardList} onClose={onClose} size="lg" footer={footer}>
             <div className="order-form">
                 {/* ── Cliente ── */}
                 <section className="order-form__section">
                     <div className="order-form__label">Cliente</div>
-                    {customer || newCustomerName ? (
+                    {(customer || newCustomerName) && renaming ? (
+                        <div className="order-form__customer order-form__customer--edit">
+                            <input
+                                className="input"
+                                value={nameDraft}
+                                onChange={(e) => setNameDraft(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        confirmRename();
+                                    }
+                                    if (e.key === "Escape") {
+                                        e.stopPropagation();
+                                        setRenaming(false);
+                                    }
+                                }}
+                                autoFocus
+                                aria-label="Nombre del cliente"
+                            />
+                            <button className="btn btn--primary btn--sm" onClick={confirmRename} title="Guardar nombre">
+                                <Check size={16} /> Guardar
+                            </button>
+                            <button className="icon-btn" onClick={() => setRenaming(false)} title="Cancelar" aria-label="Cancelar">
+                                <X size={16} />
+                            </button>
+                        </div>
+                    ) : customer || newCustomerName ? (
                         <div className="order-form__customer">
-                            <b>{customer?.name || newCustomerName}</b>
+                            <b>{customerName}</b>
+                            <button
+                                className="icon-btn"
+                                onClick={() => {
+                                    setNameDraft(customerName);
+                                    setRenaming(true);
+                                }}
+                                title="Corregir el nombre del cliente"
+                                aria-label="Corregir el nombre del cliente"
+                            >
+                                <Pencil size={15} />
+                            </button>
                             {newCustomerName && <span className="tag tag--general">Nuevo · se crea al guardar</span>}
                             {customer && <span className={`tag tag--${customer.priceType || "special"}`}>{PRICE_TYPES[customer.priceType || "special"]?.label}</span>}
-                            <button className="icon-btn" onClick={clearCustomer} title="Cambiar cliente" aria-label="Cambiar cliente">
+                            <button className="icon-btn order-form__change" onClick={clearCustomer} title="Elegir otro cliente" aria-label="Elegir otro cliente">
                                 <X size={16} />
                             </button>
                         </div>
@@ -210,10 +276,13 @@ export default function OrderForm({ order = null, defaultDate, onClose }) {
                         <Field label="Celular (opcional)">
                             <input className="input" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="3001234567" />
                         </Field>
-                        <Field label="Tipo">
-                            <ChipGroup options={KINDS} value={kind} onChange={setKind} />
+                        <Field label="Cumpleaños (opcional)">
+                            <BirthdayInput key={customerId || "nuevo"} value={birthday} onChange={setBirthday} />
                         </Field>
                     </div>
+                    <Field label="Tipo">
+                        <ChipGroup options={KINDS} value={kind} onChange={setKind} />
+                    </Field>
                     {kind === "delivery" && (
                         <div className="order-form__grid">
                             <Field label="Dirección (opcional)">

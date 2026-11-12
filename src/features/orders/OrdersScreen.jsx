@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardList, Plus, Bike, ShoppingBag, CheckCircle2, Clock, MapPin, Phone, StickyNote, ChevronRight, AlertTriangle, PackageCheck, MessageCircle, History, CalendarDays, Loader2 } from "lucide-react";
+import { ClipboardList, Plus, Bike, ShoppingBag, CheckCircle2, Clock, MapPin, Phone, StickyNote, ChevronRight, AlertTriangle, PackageCheck, MessageCircle, History, CalendarDays, Loader2, Cake } from "lucide-react";
+import { upcomingBirthdays } from "../../lib/birthdays";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
@@ -31,7 +32,7 @@ const readyMessage = (o) => {
 };
 
 export default function OrdersScreen({ onDeliver }) {
-    const { orders, productsById, todayKey, actions } = useData();
+    const { orders, productsById, customers, todayKey, actions } = useData();
     const { showToast } = useUi();
     const { can } = useAuth();
     const canManage = can("manageOrders");
@@ -168,6 +169,7 @@ export default function OrdersScreen({ onDeliver }) {
                             <p className="muted small">
                                 {selected === todayKey || selected === OVERDUE ? "Comparado con el stock actual. Lo que falta hay que prepararlo u hornearlo." : "Referencia con el stock de hoy: estos pedidos aún no reservan nada."}
                             </p>
+                            <BirthdaysCard customers={customers} todayKey={todayKey} />
                         </aside>
                     </div>
                 </>
@@ -296,6 +298,42 @@ function ClosedOrders({ state }) {
                     </tbody>
                 </table>
             </div>
+        </div>
+    );
+}
+
+/** Recordatorio de cumpleaños de clientes: hoy (resaltados) y los próximos 7 días. */
+function BirthdaysCard({ customers, todayKey }) {
+    const list = useMemo(() => upcomingBirthdays(customers, keyToDate(todayKey), 7), [customers, todayKey]);
+    if (list.length === 0) return null;
+    const greet = (c) => {
+        const first = (c.name || "").trim().split(/\s+/)[0] || "";
+        const text = `Hola ${first}, en Hemma Café te deseamos un muy feliz cumpleaños. ¡Que tengas un día increíble!`;
+        window.open(whatsappLink(c.phone, text), "_blank");
+        navigator.clipboard?.writeText(text).catch(() => {});
+    };
+    return (
+        <div className="birthdays">
+            <h2 className="orders__heading">
+                <Cake size={17} /> Cumpleaños
+            </h2>
+            <ul className="birthdays__list">
+                {list.map(({ customer: c, date, daysAway }) => (
+                    <li key={c.id} className={daysAway === 0 ? "is-today" : ""}>
+                        <span className="birthdays__who">
+                            <b>{c.name}</b>
+                            <span className="small">
+                                {daysAway === 0 ? "¡Hoy!" : daysAway === 1 ? "Mañana" : date.toLocaleDateString("es-CO", { weekday: "long", day: "numeric" })}
+                            </span>
+                        </span>
+                        {isValidPhone(c.phone) && (
+                            <button className="icon-btn" onClick={() => greet(c)} title={`Felicitar a ${c.name} por WhatsApp`} aria-label={`Felicitar a ${c.name} por WhatsApp`}>
+                                <MessageCircle size={17} />
+                            </button>
+                        )}
+                    </li>
+                ))}
+            </ul>
         </div>
     );
 }

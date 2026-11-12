@@ -123,15 +123,14 @@ function SavedUserPicker({ users, onPick, onForget, onOther }) {
     );
 }
 
-/** Ingreso con usuario y contraseña. «Recordar» abre directo en la caja la próxima vez. */
+/** Ingreso con usuario y contraseña. La sesión dura mientras el programa esté abierto. */
 export function StaffLogin() {
-    const { login, rememberDefault, savedUsers, forgetSavedUser, loginHint, clearLoginHint } = useAuth();
+    const { login, savedUsers, forgetSavedUser, loginHint, clearLoginHint } = useAuth();
     // Con usuarios guardados se muestran las tarjetas; «Otro usuario» abre el formulario completo.
     const [showForm, setShowForm] = useState(() => loginHint === "other" || savedUsers.length === 0);
     const [picked, setPicked] = useState(null);
     const [username, setUsername] = useState(() => (loginHint === "other" ? "" : readString(LAST_USERNAME_KEY)));
     const [password, setPassword] = useState("");
-    const [remember, setRemember] = useState(rememberDefault);
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
     const [forgot, setForgot] = useState(false);
@@ -142,7 +141,7 @@ export function StaffLogin() {
         const uname = picked ? picked.username : username;
         if (!uname.trim() || !password) return;
         setBusy(true);
-        const res = await login(uname, password, remember);
+        const res = await login(uname, password);
         if (res.ok) clearLoginHint();
         setBusy(false);
         if (res.error) {
@@ -208,13 +207,6 @@ export function StaffLogin() {
                     </label>
                 )}
                 <PasswordField key={picked?.id || "form"} value={password} onChange={setPassword} inputRef={passRef} autoFocus={Boolean(picked || username)} />
-                <button type="button" className={`check ${remember ? "is-on" : ""}`} onClick={() => setRemember((v) => !v)} aria-pressed={remember}>
-                    <span className="check__box">{remember && <Check size={14} />}</span>
-                    <span>
-                        Recordar en este equipo
-                        <small>Abre directo en la caja, sin pedir la contraseña</small>
-                    </span>
-                </button>
                 <ErrorMsg>{error}</ErrorMsg>
                 <button type="submit" className="btn btn--primary btn--xl btn--block" disabled={busy || !(picked || username.trim()) || !password}>
                     {busy ? <Loader2 size={20} className="spin" /> : <LogIn size={20} />} Ingresar

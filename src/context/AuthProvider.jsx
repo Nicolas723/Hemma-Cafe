@@ -65,8 +65,23 @@ const PERMS_CACHE_KEY = "pos_cashier_perms";
 // equipo, la sesión recordada deja de valer y se vuelve a pedir.
 const stampOf = (user) => (user?.passwordHash || "").slice(0, 12);
 
+/**
+ * La sesión vive solo mientras el programa está abierto: sessionStorage sobrevive a
+ * recargar la ventana pero se borra al cerrar la app (verificado en Electron 22).
+ * Al abrir siempre se pregunta quién ingresa.
+ */
 function readSavedSession() {
-    return readJSON(SESSION_KEY, null) || readSessionJSON(SESSION_KEY, null);
+    return readSessionJSON(SESSION_KEY, null);
+}
+
+/** Restos de «Recordar en este equipo» (versiones ≤ 2.3): ya no se usa. */
+function purgeRememberedSession() {
+    try {
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(REMEMBER_KEY);
+    } catch {
+        /* sin almacenamiento disponible */
+    }
 }
 
 // Limpia credenciales en texto plano de la versión 1.x y claves de versiones anteriores.
@@ -84,6 +99,7 @@ export function AuthProvider({ children }) {
     const [usersState, setUsersState] = useState({ users: [], ready: false, fromServer: false });
     const [session, setSession] = useState(() => {
         purgeLegacy();
+        purgeRememberedSession();
         return readSavedSession();
     });
     const [demoSessionId, setDemoSessionId] = useState("");
@@ -238,7 +254,6 @@ export function AuthProvider({ children }) {
         return u && u.active !== false && stampOf(u) === session.stamp ? u : null;
     }, [isDemo, demoSessionId, session, users]);
 
-    const remembered = !isDemo && Boolean(readJSON(SESSION_KEY, null));
 
     // Acceso rápido: usuarios que ya ingresaron en este equipo (solo ids, nunca contraseñas).
     const [savedIds, setSavedIds] = useState(() => readJSON(SAVED_USERS_KEY, []));
@@ -256,23 +271,19 @@ export function AuthProvider({ children }) {
     // «Otro usuario» desde el menú de salir: la pantalla de ingreso abre el formulario completo.
     const [loginHint, setLoginHint] = useState("");
 
-    const startSession = (user, remember) => {
+    const startSession = (user) => {
         if (modeRef.current === "demo") {
             setDemoSessionId(user.id);
             return;
         }
         saveIds(addSavedUser(readJSON(SAVED_USERS_KEY, []), user.id));
         const s = { id: user.id, stamp: stampOf(user) };
-        if (remember) writeJSON(SESSION_KEY, s);
-        else writeString(SESSION_KEY, "");
-        writeSessionJSON(SESSION_KEY, remember ? null : s);
-        writeString(REMEMBER_KEY, remember ? "true" : "false");
+        writeSessionJSON(SESSION_KEY, s);
         writeString(LAST_USERNAME_KEY, user.username);
         setSession(s);
     };
 
     const clearSession = () => {
-        writeString(SESSION_KEY, "");
         writeSessionJSON(SESSION_KEY, null);
         setSession(null);
     };
@@ -324,8 +335,6 @@ export function AuthProvider({ children }) {
             deleteDoc(doc(db, DEVICES_COLLECTION, id)).catch((err) => console.error(err));
             audit("Quitó el acceso a un equipo", name || id);
         },
-        remembered,
-        rememberDefault: readString(REMEMBER_KEY) === "true",
         lockedFor,
         cashierPerms,
         /** ¿El usuario en sesión puede hacer `perm`? (ver lib/permissions.js) */
@@ -341,7 +350,7 @@ export function AuthProvider({ children }) {
         },
 
         /** Ingreso con usuario y contraseña (funciona sin internet). */
-        async login(username, password, remember) {
+        async login(username, password) {
             const wait = lockedFor();
             if (wait > 0) return { error: `Demasiados intentos. Espera ${wait} s.` };
             const uname = normalizeUsername(username);
@@ -351,8 +360,8 @@ export function AuthProvider({ children }) {
                 return { error: until ? "Demasiados intentos fallidos. Espera 30 s." : "Usuario o contraseña incorrectos" };
             }
             writeJSON(LOCK_KEY, { count: 0, until: 0 });
-            startSession(user, remember);
-            audit("Ingresó", remember ? "Con «Recordar en este equipo»" : "", user);
+            startSession(user);
+            audit("Ingresó", "", user);
             return { ok: true };
         },
 
@@ -374,7 +383,7 @@ export function AuthProvider({ children }) {
 
         /**
          * Cambio de turno sin cerrar la sesión: solo si la contraseña es correcta se pasa
-         * al otro usuario. «Recordar en este equipo» se apaga (cada uno lo activa si quiere).
+         * al otro usuario.
          */
         async switchUser(userId, password) {
             if (modeRef.current === "demo") {
@@ -390,15 +399,11 @@ export function AuthProvider({ children }) {
             }
             writeJSON(LOCK_KEY, { count: 0, until: 0 });
             const previous = sessionUser?.displayName || "";
-            startSession(user, false);
+            startSession(user);
             audit("Ingresó", previous ? `Cambio de usuario (antes: ${previous})` : "Cambio de usuario", user);
             return { ok: true };
         },
 
-        /** Activar o quitar «Recordar en este equipo» para la sesión actual. */
-        setRemember(on) {
-            if (sessionUser && !isDemo) startSession(sessionUser, on);
-        },
 
         // ── Demo (aislada, solo en memoria) ──
         async enterDemo(role = "admin") {
@@ -476,7 +481,7 @@ export function AuthProvider({ children }) {
             const target = users.find((u) => u.id === id);
             audit(id === by?.id ? "Cambió su contraseña" : by === sessionUser ? "Cambió la contraseña de un usuario" : "Recuperó la contraseña de un usuario", target?.displayName || "", by);
             // Si es la propia sesión, se renueva la marca para no sacar al usuario.
-            if (!isDemo && session?.id === id) startSession({ id, username: sessionUser?.username, passwordHash: hashed.passwordHash }, remembered);
+            if (!isDemo && session?.id === id) startSession({ id, username: sessionUser?.username, passwordHash: hashed.passwordHash });
             return { ok: true };
         },
 

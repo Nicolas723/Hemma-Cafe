@@ -6,10 +6,10 @@ import UserMenu from "./UserMenu";
 export const SCREENS = [
     { id: "pos", label: "Caja", icon: ShoppingCart },
     { id: "orders", label: "Pedidos", icon: ClipboardList },
-    { id: "loans", label: "Créditos", icon: Wallet },
     { id: "history", label: "Ventas", icon: Receipt },
     { id: "closing", label: "Cierre", icon: Calculator, perm: "closing" },
     { id: "inventory", label: "Inventario", icon: Package },
+    { id: "loans", label: "Créditos", icon: Wallet },
     { id: "reports", label: "Reportes", icon: BarChart3, perm: "viewReports" },
     { id: "settings", label: "Ajustes", icon: Settings },
 ];

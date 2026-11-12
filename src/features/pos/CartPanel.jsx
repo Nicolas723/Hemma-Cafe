@@ -25,7 +25,7 @@ function OptChip({ icon: Icon, label, on, onClick }) {
     );
 }
 
-export default function CartPanel({ pos, order, customer, orderInfo = null, orderClosed = false, onIncrease, onClose }) {
+export default function CartPanel({ pos, order, customer, orderInfo = null, orderClosed = false, onIncrease, flash = null, onClose }) {
     const { vendedores, customers, paymentMethods, actions } = useData();
     const { showToast, showConfirm, printReceipt } = useUi();
     const { can } = useAuth();
@@ -131,6 +131,11 @@ export default function CartPanel({ pos, order, customer, orderInfo = null, orde
             items: order.lines.map((l) => ({ name: l.name, cartQuantity: l.cartQuantity, subtotal: l.subtotal })),
         });
 
+    // La línea resaltada (producto que ya estaba en la orden) queda a la vista.
+    useEffect(() => {
+        if (flash) document.querySelector(".cart .line.is-flash")?.scrollIntoView({ block: "nearest" });
+    }, [flash]);
+
     // Ctrl+Enter o F12 cobran.
     useEffect(() => {
         const onKey = (e) => {
@@ -220,7 +225,8 @@ export default function CartPanel({ pos, order, customer, orderInfo = null, orde
                     </EmptyState>
                 ) : (
                     order.lines.map((l) => (
-                        <div className="line" key={l.lineId}>
+                        // La clave cambia en cada resaltado para reiniciar la animación.
+                        <div className={`line ${flash?.lineId === l.lineId ? "is-flash" : ""}`} key={flash?.lineId === l.lineId ? `${l.lineId}:${flash.n}` : l.lineId}>
                             <div className="line__info">
                                 <div className="line__name">{l.name}</div>
                                 <div className="line__meta">

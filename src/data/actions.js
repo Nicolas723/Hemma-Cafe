@@ -417,10 +417,29 @@ export function createActions({ db, col, getData, getUser, notify }) {
             return true;
         },
         /** Cliente creado desde un pedido: precio general, datos opcionales. Devuelve el id. */
-        quickAddCustomer({ name, phone = "", address = "" }) {
+        quickAddCustomer({ name, phone = "", address = "", birthday = "" }) {
             const customerRef = doc(col("customers"));
-            fireAndForget(setDoc(customerRef, { name: name.trim(), priceType: "general", ...(phone ? { phone } : {}), ...(address ? { address } : {}) }), notify, "El cliente no se sincronizó aún");
+            fireAndForget(setDoc(customerRef, { name: name.trim(), priceType: "general", ...(phone ? { phone } : {}), ...(address ? { address } : {}), ...(birthday ? { birthday } : {}) }), notify, "El cliente no se sincronizó aún");
             return customerRef.id;
+        },
+        /**
+         * Corrige el nombre de un cliente: ficha, pedidos abiertos y créditos pendientes
+         * quedan con el nombre nuevo. Las ventas ya hechas conservan el nombre con que se registraron.
+         */
+        renameCustomer(id, newName) {
+            const name = (newName || "").trim();
+            const { customers, orders, loans } = getData();
+            const current = customers.find((c) => c.id === id);
+            if (!current) return { error: "Cliente no encontrado" };
+            if (!name) return { error: "Escribe el nombre" };
+            if (name === current.name) return { ok: true };
+            if (customers.some((c) => c.id !== id && c.name.trim().toLowerCase() === name.toLowerCase())) return { error: `Ya existe un cliente llamado «${name}»` };
+            const ops = [(bt) => bt.update(ref("customers", id), { name })];
+            orders.filter((o) => o.customerId === id).forEach((o) => ops.push((bt) => bt.update(ref("orders", o.id), { customerName: name })));
+            loans.filter((l) => l.customerId === id).forEach((l) => ops.push((bt) => bt.update(ref("loans", l.id), { customerName: name })));
+            commitInChunks(db, ops, logError);
+            audit("settings", "Cambió el nombre de un cliente", `${current.name} → ${name}`);
+            return { ok: true };
         },
         updateCustomer: (id, data) => fireAndForget(updateDoc(ref("customers", id), data), notify, "El cliente no se sincronizó aún"),
         deleteCustomer(id) {

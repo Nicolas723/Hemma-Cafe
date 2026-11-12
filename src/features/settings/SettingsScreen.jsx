@@ -1,4 +1,5 @@
 import { useState } from "react";
+import BirthdayInput from "../../components/BirthdayInput";
 import { Settings, Users, Image, Eye, Monitor, UserCircle2, CreditCard, Printer, RefreshCw, AlertTriangle, Plus, X, Download, Rocket, Trash2, Banknote, Smartphone, Landmark, Zap, Coffee, Gift, Coins, Wallet } from "lucide-react";
 import { version } from "../../../package.json";
 import { useData } from "../../context/DataProvider";
@@ -11,7 +12,7 @@ import { readString, writeString } from "../../lib/storage";
 import { useShowPhotos } from "../../lib/hooks";
 import { useAuth } from "../../context/AuthProvider";
 import UsersCard from "./UsersCard";
-import { MyPasswordCard, SessionCard } from "./AccountCard";
+import { MyPasswordCard } from "./AccountCard";
 import PermissionsCard from "./PermissionsCard";
 import BackupCard from "./BackupCard";
 import Masonry from "../../components/Masonry";
@@ -116,7 +117,6 @@ export default function SettingsScreen({ updater }) {
                 {isAdmin && <PermissionsCard />}
                 {isAdmin && mode !== "demo" && <DevicesCard />}
                 <MyPasswordCard />
-                <SessionCard />
                 {(isAdmin || can("exportData")) && <BackupCard />}
 
                 <section className="card stack">
@@ -169,6 +169,7 @@ export default function SettingsScreen({ updater }) {
                                         onBlur={(e) => e.target.value.trim() !== (c.phone || "") && actions.updateCustomer(c.id, { phone: e.target.value.trim() })}
                                         aria-label={`Celular de ${c.name}`}
                                     />
+                                    <BirthdayInput compact value={c.birthday || ""} onChange={(v) => actions.updateCustomer(c.id, { birthday: v })} />
                                 </div>
                                 <select
                                     className={`select select--sm tag--${c.priceType || "special"}`}

@@ -69,7 +69,7 @@ function Shell() {
     const [incomingOrder, setIncomingOrder] = useState(null); // pedido que se lleva a la caja para entregarlo
     const isOnline = useOnlineStatus();
     const updater = useUpdater();
-    const { pendingSync, loans, products, orders, todayKey, col } = useData();
+    const { pendingSync, products, orders, todayKey, col } = useData();
     const { showToast } = useUi();
 
     // Copia de seguridad automática semanal (solo app de escritorio, con internet).
@@ -104,13 +104,12 @@ function Shell() {
 
     const badges = useMemo(
         () => ({
-            loans: new Set(loans.map((l) => l.customerId)).size || null,
             // Pedidos para hoy y atrasados.
             orders: orders.filter((o) => o.dueDate <= todayKey).length || null,
             inventory: products.filter((p) => !p.isPriceFlexible && (p.quantity || 0) <= LOW_STOCK).length || null,
             settings: auth.isAdmin && (updater.status === "available" || updater.status === "downloaded") ? "!" : null,
         }),
-        [loans, products, orders, todayKey, updater.status, auth.isAdmin]
+        [products, orders, todayKey, updater.status, auth.isAdmin]
     );
 
     const openHistory = (date) => {

@@ -3274,3 +3274,99 @@
     bottom: 72px;
   }
 }
+
+/* Producto que ya estaba en la orden: su línea parpadea para ajustar la cantidad con + / - */
+@keyframes line-flash {
+  0%, 100% { background: transparent; }
+  25%, 60% { background: var(--warn-bg); box-shadow: inset 4px 0 0 var(--warn-strong); }
+}
+.line.is-flash {
+  animation: line-flash 1.1s ease 1;
+}
+
+/* ─────────────── Cumpleaños de clientes ─────────────── */
+.birthday-input {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  color: var(--text-muted);
+}
+.birthday-input .select {
+  width: auto;
+  min-height: 40px;
+}
+.birthday-input--compact {
+  min-height: 0;
+  margin-top: 0.25rem;
+}
+.birthday-input--compact .select {
+  min-height: 30px;
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+}
+.birthdays {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.birthdays .orders__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.2rem;
+}
+.birthdays__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.birthdays__list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.birthdays__list li.is-today {
+  background: #fde7f0;
+  color: #9b1650;
+  box-shadow: inset 3px 0 0 #d63a7f;
+}
+.birthdays__who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.birthdays__who .small {
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.birthdays__list li.is-today .small {
+  color: #9b1650;
+  font-weight: 800;
+}
+
+/* Corregir el nombre del cliente desde el pedido */
+.order-form__customer .icon-btn {
+  margin-left: 0;
+}
+.order-form__customer .order-form__change {
+  margin-left: auto;
+}
+.order-form__customer--edit {
+  padding: 0.3rem;
+}
+.order-form__customer--edit .input {
+  flex: 1;
+  min-height: 38px;
+}

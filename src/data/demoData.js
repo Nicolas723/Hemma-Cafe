@@ -153,9 +153,10 @@ export function buildDemoDataset() {
         paymentMethods: DEFAULT_PAYMENT_METHODS,
         vendedores: [{ name: "Laura" }, { name: "Andrés" }],
         customers: [
-            { id: "marta", name: "Doña Marta", priceType: "special", phone: "3001234567" },
+            // Cumpleaños de muestra: Doña Marta hoy y Julián en 3 días (se ven en Pedidos).
+            { id: "marta", name: "Doña Marta", priceType: "special", phone: "3001234567", birthday: dayKey(daysAgo(0, 12)).slice(5) },
             { id: "oficina", name: "Oficina Calle 10", priceType: "wholesale" },
-            { id: "julian", name: "Julián Ríos", priceType: "special" },
+            { id: "julian", name: "Julián Ríos", priceType: "special", birthday: dayKey(daysAgo(-3, 12)).slice(5) },
             { id: "ana", name: "Ana Gómez", priceType: "general", phone: "3109876543" },
         ],
         orders,
