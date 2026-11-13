@@ -1,7 +1,7 @@
 {
   "name": "hemmacafe-pos",
   "private": true,
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Punto de venta de Hemma Café (React + Firestore offline + Electron para Windows 7)",
   "type": "module",
   "repository": {

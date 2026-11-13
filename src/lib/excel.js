@@ -1,3 +1,4 @@
+import { toInputDate } from "./dates";
 /**
  * ExcelJS pesa ~1 MB: se carga solo cuando el usuario exporta o importa,
  * así el arranque de la caja en Windows 7 es mucho más rápido.
@@ -66,7 +67,8 @@ export async function readWorkbook(file) {
     return rows;
 }
 
-export const today = () => new Date().toISOString().split("T")[0];
+// Fecha local (toISOString daba la de mañana después de las 7 p. m. en Colombia).
+export const today = () => toInputDate(new Date());
 
 export const PRODUCT_COLUMNS = [
     { header: "Nombre", key: "Nombre", width: 28 },

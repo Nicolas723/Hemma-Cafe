@@ -8,6 +8,8 @@ import { isValidPhone, reminderMessage, whatsappLink } from "../../lib/whatsapp"
 import { MethodPicker, SplitEditor, newSplitRow, splitRowsToPayments } from "../../components/PaymentMethods";
 import { formatCurrency, formatDateLong, formatTime, initials, toDate } from "../../lib/format";
 import { exportWorkbook, today } from "../../lib/excel";
+import ExportDialog, { RangeField, useRangeFilter } from "../../components/ExportDialog";
+import { filterLoans, loanCustomers, loansSheet, rangeTag, safeFileName } from "../../lib/exports";
 import { DEFAULT_PAYMENT_METHODS } from "../../lib/paymentIcons";
 import { itemOutstanding, loanOutstanding, pickCost, planFromAmount, planFromPicks, planTotal } from "../../lib/loans";
 
@@ -34,6 +36,7 @@ export default function LoansScreen() {
     const [splitRows, setSplitRows] = useState(() => [newSplitRow(methods[0]?.name)]);
     const [payMode, setPayMode] = useState("items");
     const [amount, setAmount] = useState("");
+    const [exporting, setExporting] = useState(false);
 
     const debtors = useMemo(() => {
         const groups = {};
@@ -132,56 +135,11 @@ export default function LoansScreen() {
         showToast(`Abono de ${formatCurrency(total)} registrado para ${selected.name}`, "success");
     };
 
-    const exportExcel = async () => {
-        try {
-            const rows = [];
-            loans.forEach((loan) => {
-                const d = loanDate(loan);
-                (loan.items || []).forEach((item) =>
-                    rows.push({
-                        cliente: loan.customerName,
-                        fecha: d.toLocaleDateString("es-CO"),
-                        hora: formatTime(d),
-                        producto: item.name,
-                        cantidad: item.cartQuantity,
-                        precio: item.price,
-                        subtotal: item.price * item.cartQuantity,
-                        abonado: item.paid || 0,
-                        debe: itemOutstanding(item),
-                        notas: loan.notes || "",
-                    })
-                );
-            });
-            await exportWorkbook(`Creditos_${today()}.xlsx`, [
-                {
-                    name: "Créditos",
-                    columns: [
-                        { header: "Cliente", key: "cliente", width: 25 },
-                        { header: "Fecha", key: "fecha", width: 14 },
-                        { header: "Hora", key: "hora", width: 10 },
-                        { header: "Producto", key: "producto", width: 30 },
-                        { header: "Cantidad", key: "cantidad", width: 10 },
-                        { header: "Precio unit.", key: "precio", money: true },
-                        { header: "Subtotal", key: "subtotal", money: true },
-                        { header: "Abonado", key: "abonado", money: true },
-                        { header: "Debe", key: "debe", money: true },
-                        { header: "Notas", key: "notas", width: 30 },
-                    ],
-                    rows,
-                },
-            ]);
-            showToast("Excel de créditos descargado", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("No se pudo exportar el Excel", "error");
-        }
-    };
-
     return (
         <div className="page">
             <PageHeader icon={Wallet} title="Créditos" subtitle={`${debtors.length} clientes deben ${formatCurrency(totalDebt)}`}>
                 {can("exportData") && (
-                    <button className="btn btn--ghost" onClick={exportExcel} disabled={!loans.length}>
+                    <button className="btn btn--ghost" onClick={() => setExporting(true)} disabled={!loans.length}>
                         <FileSpreadsheet size={18} /> Exportar Excel
                     </button>
                 )}
@@ -374,6 +332,54 @@ export default function LoansScreen() {
                     </form>
                 </Modal>
             )}
+            {exporting && <LoansExport customer={selectedId || ""} onClose={() => setExporting(false)} />}
         </div>
+    );
+}
+
+/** Descargar créditos: cliente y fechas del fiado (lo ya pagado sale del crédito y queda en Ventas como abono). */
+function LoansExport({ customer: initialCustomer, onClose }) {
+    const { loans } = useData();
+    const { showToast } = useUi();
+    const [dates, setDates] = useRangeFilter("all");
+    const [customer, setCustomer] = useState("");
+    const customers = useMemo(() => loanCustomers(loans), [loans]);
+    const list = filterLoans(loans, { range: dates.range, customer });
+    const lines = list.reduce((n, l) => n + (l.items || []).length, 0);
+    const selectedName = customers.find((c) => c.value === initialCustomer)?.label;
+
+    const download = async () => {
+        try {
+            const who = customer ? `_${customers.find((c) => c.value === customer)?.label || ""}` : "";
+            const when = dates.range[0] || dates.range[1] ? `_${rangeTag(dates.range)}` : `_${today()}`;
+            await exportWorkbook(safeFileName(`Creditos${who}${when}.xlsx`), [loansSheet(list)]);
+            showToast("Excel de créditos descargado", "success");
+        } catch (err) {
+            console.error(err);
+            showToast("No se pudo exportar el Excel", "error");
+            return false;
+        }
+    };
+
+    return (
+        <ExportDialog title="Descargar créditos" count={lines} noun={["producto fiado", "productos fiados"]} onDownload={download} onClose={onClose}>
+            <Field label="Cliente">
+                <select className="select" value={customer} onChange={(e) => setCustomer(e.target.value)}>
+                    <option value="">Todos los clientes</option>
+                    {customers.map((c) => (
+                        <option key={c.value} value={c.value}>
+                            {c.label}
+                        </option>
+                    ))}
+                </select>
+            </Field>
+            {selectedName && customer !== initialCustomer && (
+                <button type="button" className="btn btn--soft btn--sm export__shortcut" onClick={() => setCustomer(initialCustomer)}>
+                    Solo {selectedName}
+                </button>
+            )}
+            <RangeField value={dates} onChange={setDates} label="Fecha del fiado" />
+            <p className="muted small">Incluye solo lo que se debe: lo ya pagado está en Ventas como «Abono».</p>
+        </ExportDialog>
     );
 }

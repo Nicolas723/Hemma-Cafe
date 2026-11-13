@@ -46,6 +46,14 @@ export const DATE_PRESETS = [
             return [new Date(now.getFullYear(), now.getMonth(), 1), endOfDay()];
         },
     },
+    {
+        id: "lastMonth",
+        label: "Mes pasado",
+        range: () => {
+            const now = new Date();
+            return [new Date(now.getFullYear(), now.getMonth() - 1, 1), endOfDay(new Date(now.getFullYear(), now.getMonth(), 0))];
+        },
+    },
     { id: "all", label: "Todo", range: () => [null, null] },
 ];
 

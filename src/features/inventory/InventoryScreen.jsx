@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from "react";
-import { Package, Plus, Upload, Download, FileSpreadsheet, Pencil, Trash2, Minus, Tags, BadgePercent, AlertTriangle, ArrowUpDown, PackageSearch, Truck, ChefHat, Lock } from "lucide-react";
+import { Package, Plus, Upload, Download, FileSpreadsheet, Coins, Pencil, Trash2, Minus, Tags, BadgePercent, AlertTriangle, ArrowUpDown, PackageSearch, Truck, ChefHat, Lock } from "lucide-react";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
-import { ChipGroup, EmptyState, PageHeader, SearchInput, Toggle } from "../../components/ui";
+import { ChipGroup, EmptyState, Field, PageHeader, SearchInput, Toggle } from "../../components/ui";
+import ExportDialog from "../../components/ExportDialog";
+import { filterInventory, safeFileName } from "../../lib/exports";
 import { formatCurrency, colorFor, initials } from "../../lib/format";
 import { exportWorkbook, readWorkbook, today, PRODUCT_COLUMNS } from "../../lib/excel";
 import { isFlexible } from "../../lib/pricing";
@@ -50,6 +52,7 @@ export default function InventoryScreen() {
     const [editing, setEditing] = useState(null); // null | {} (nuevo) | producto
     const [importing, setImporting] = useState(false);
     const [receiving, setReceiving] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const tabs = TABS.filter((t) => !t.perm || (t.perm === "edit" ? canEdit : canStock));
     const fileRef = useRef(null);
     const query = useDebounced(search.trim().toLowerCase(), 150);
@@ -74,32 +77,6 @@ export default function InventoryScreen() {
     }, [products, query, category, lowOnly, sort, catName]);
 
     const toggleSort = (key) => setSort((s) => (s.key === key ? { key, dir: -s.dir } : { key, dir: 1 }));
-
-    const downloadInventory = async () => {
-        try {
-            await exportWorkbook(`Inventario_${today()}.xlsx`, [
-                {
-                    name: "Inventario",
-                    columns: productColumns,
-                    rows: products
-                        .filter((p) => !isFlexible(p))
-                        .map((p) => ({
-                            Nombre: p.name,
-                            Categoría: catName[p.categoryId] || "General",
-                            Precio: p.price,
-                            Cantidad: p.quantity,
-                            "Precio Especial": p.specialPrice || "",
-                            "Precio Mayorista": p.wholesalePrice || "",
-                            ...(isAdmin ? { Costo: p.cost || "" } : {}),
-                        })),
-                },
-            ]);
-            showToast("Inventario descargado", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("No se pudo exportar el inventario", "error");
-        }
-    };
 
     const downloadTemplate = async () => {
         try {
@@ -167,7 +144,7 @@ export default function InventoryScreen() {
                                 </>
                             )}
                             {can("exportData") && (
-                                <button className="btn btn--ghost" onClick={downloadInventory}>
+                                <button className="btn btn--ghost" onClick={() => setExporting(true)}>
                                     <Download size={18} /> Descargar
                                 </button>
                             )}
@@ -295,6 +272,66 @@ export default function InventoryScreen() {
 
             {receiving && <StockEntryForm onClose={() => setReceiving(false)} />}
             {canEdit && editing && <ProductForm product={editing.id ? editing : null} onClose={() => setEditing(null)} />}
+            {exporting && <InventoryExport initial={{ category, lowOnly }} onClose={() => setExporting(false)} />}
         </div>
+    );
+}
+
+/** Descargar inventario: categoría, solo stock bajo/agotados y (administrador) el costo. */
+function InventoryExport({ initial, onClose }) {
+    const { products, categories } = useData();
+    const { showToast } = useUi();
+    const { isAdmin } = useAuth();
+    const [category, setCategory] = useState(initial.category);
+    const [lowOnly, setLowOnly] = useState(initial.lowOnly);
+    const [withCost, setWithCost] = useState(isAdmin);
+    const catName = useMemo(() => Object.fromEntries(categories.map((c) => [c.id, c.name])), [categories]);
+    const list = filterInventory(products, { category, lowOnly }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "es"));
+
+    const download = async () => {
+        try {
+            const cost = isAdmin && withCost;
+            const columns = cost ? PRODUCT_COLUMNS : PRODUCT_COLUMNS.filter((c) => c.key !== "Costo");
+            const parts = [category && catName[category], lowOnly && "stock-bajo"].filter(Boolean);
+            await exportWorkbook(safeFileName(`Inventario${parts.length ? `_${parts.join("_")}` : ""}_${today()}.xlsx`), [
+                {
+                    name: "Inventario",
+                    columns,
+                    rows: list.map((p) => ({
+                        Nombre: p.name,
+                        Categoría: catName[p.categoryId] || "General",
+                        Precio: p.price,
+                        Cantidad: p.quantity,
+                        "Precio Especial": p.specialPrice || "",
+                        "Precio Mayorista": p.wholesalePrice || "",
+                        ...(cost ? { Costo: p.cost || "" } : {}),
+                    })),
+                },
+            ]);
+            showToast("Inventario descargado", "success");
+        } catch (err) {
+            console.error(err);
+            showToast("No se pudo exportar el inventario", "error");
+            return false;
+        }
+    };
+
+    return (
+        <ExportDialog title="Descargar inventario" count={list.length} noun={["producto", "productos"]} onDownload={download} onClose={onClose}>
+            <Field label="Categoría">
+                <select className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                    <option value="">Todas</option>
+                    {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                            {c.name}
+                        </option>
+                    ))}
+                </select>
+            </Field>
+            <div className="export__row">
+                <Toggle icon={AlertTriangle} label={`Solo stock bajo o agotados (${LOW_STOCK} o menos)`} checked={lowOnly} onChange={setLowOnly} />
+                {isAdmin && <Toggle icon={Coins} label="Incluir costo" checked={withCost} onChange={setWithCost} />}
+            </div>
+        </ExportDialog>
     );
 }

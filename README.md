@@ -158,6 +158,13 @@ Un pedido **no es venta** hasta que se entrega y se cobra (o se fía).
   métodos de pago y vendedores. Gráficos en CSS puro (sin librerías, livianos en Windows 7), con vista de tabla.
 - **Registro de actividad** (*Reportes → Actividad*, solo administrador): ediciones/anulaciones de ventas, descuentos,
   cortesías, ajustes de stock, cierres, usuarios y permisos, con quién y cuándo (colección `auditLog`).
+- **Descargas a Excel con filtros** (`components/ExportDialog.jsx`, `lib/exports.js`): el botón de Excel abre una ventana
+  con filtros y dice cuántas filas saldrán antes de descargar (si no hay datos, no descarga un archivo vacío).
+  *Cierre*: fechas y «solo cierres con descuadre». *Ventas*: fechas, tipo (ventas, pedidos, abonos, anticipos), vendedor,
+  método de pago y formato (detalle por producto o una fila por venta con una columna por método). *Créditos*: cliente y
+  fecha del fiado. *Inventario*: categoría, solo stock bajo/agotados y costo (solo administrador). Las fechas rápidas
+  incluyen «Mes pasado» y el nombre del archivo lleva el rango (`Cierres_2026-11-01_a_2026-11-30.xlsx`). Sin permiso de
+  ver días anteriores, el cajero solo descarga lo de hoy.
 - **Copias de seguridad** (*Ajustes → Copia de seguridad*): Excel legible + `.json` completo. La app de escritorio hace una
   automática cada 7 días en *Documentos › Hemma POS › Copias de seguridad* (conserva las 10 últimas).
   **Restaurar copia** (solo administrador): agrega o reemplaza cada registro por el de la copia; no borra lo creado después.

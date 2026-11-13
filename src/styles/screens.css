@@ -3370,3 +3370,47 @@
   flex: 1;
   min-height: 38px;
 }
+
+/* Ventana "Descargar Excel" */
+.export {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.export .chips--wrap {
+  flex-wrap: wrap;
+}
+.export__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: flex-end;
+}
+.export__row > .field {
+  flex: 1 1 180px;
+}
+.export__dates {
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+.export__shortcut {
+  align-self: flex-start;
+  margin-top: -0.4rem;
+}
+.export__count {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: auto;
+  color: var(--text-muted);
+}
+.export__count b {
+  color: var(--text);
+}
+.export__count.is-empty {
+  color: var(--danger, #c0392b);
+  font-weight: 700;
+}
+.export > .toggle {
+  align-self: flex-start;
+}

@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
-import { Calculator, CheckCheck, Save, FileSpreadsheet, Eye, Trash2, TrendingUp, Scale, ShoppingBag, Wallet, ClipboardCheck, Printer } from "lucide-react";
+import { Calculator, CheckCheck, Save, FileSpreadsheet, AlertTriangle, Eye, Trash2, TrendingUp, Scale, ShoppingBag, Wallet, ClipboardCheck, Printer } from "lucide-react";
 import { useData } from "../../context/DataProvider";
 import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
-import { ChipGroup, EmptyState, MoneyInput, PageHeader, StatCard } from "../../components/ui";
+import { ChipGroup, EmptyState, MoneyInput, PageHeader, StatCard, Toggle } from "../../components/ui";
+import ExportDialog, { RangeField, useRangeFilter } from "../../components/ExportDialog";
 import { PaymentIcon } from "../../lib/paymentIcons";
 import { formatCurrency, formatDate, toDate } from "../../lib/format";
 import { DATE_PRESETS, inRange, isSameDay, startOfDay } from "../../lib/dates";
-import { exportWorkbook, today } from "../../lib/excel";
+import { exportWorkbook } from "../../lib/excel";
+import { closingSheet, filterClosings, rangeTag } from "../../lib/exports";
 import { readString, writeString } from "../../lib/storage";
 import { closingMethods, closingPeriod, closingRows, isCash } from "../../lib/closing";
 import { CashOutForm, CashOutList } from "./CashOut";
@@ -24,6 +26,7 @@ export default function ClosingScreen({ onViewSales }) {
     // Sin este permiso (cajero) solo se ven los cierres de hoy.
     const pastClosings = can("pastClosings");
     const [cashOutOpen, setCashOutOpen] = useState(false);
+    const [exporting, setExporting] = useState(false);
     const [counted, setCounted] = useState({});
     const [notes, setNotes] = useState("");
     const [preset, setPreset] = useState("month");
@@ -89,43 +92,6 @@ export default function ClosingScreen({ onViewSales }) {
     const presetOptions = DATE_PRESETS.filter((p) => p.id !== "today" && p.id !== "yesterday").map((p) => ({ value: p.id, label: p.label }));
     const range = pastClosings ? DATE_PRESETS.find((p) => p.id === preset)?.range() || [null, null] : DATE_PRESETS[0].range();
     const logs = performanceLogs.filter((l) => inRange(l.date, range));
-
-    const exportExcel = async () => {
-        try {
-            const methodNames = new Set(paymentMethods.map((m) => m.name));
-            performanceLogs.forEach((l) => Object.keys(l.perMethodStats || l.paymentMethodTotals || {}).forEach((m) => methodNames.add(m)));
-            const list = [...methodNames];
-            await exportWorkbook(`Cierres_${today()}.xlsx`, [
-                {
-                    name: "Cierres",
-                    columns: [
-                        { header: "Fecha", key: "fecha", width: 12 },
-                        { header: "Productos", key: "productos", width: 10 },
-                        { header: "Esperado", key: "esperado", money: true },
-                        { header: "Real", key: "real", money: true },
-                        { header: "Diferencia", key: "dif", money: true },
-                        ...list.map((m) => ({ header: m, key: `m_${m}`, money: true })),
-                        { header: "Diferencia en", key: "difm", width: 14 },
-                        { header: "Notas", key: "notas", width: 30 },
-                    ],
-                    rows: performanceLogs.map((l) => ({
-                        fecha: toDate(l.date).toLocaleDateString("es-CO"),
-                        productos: l.productsSold || 0,
-                        esperado: l.expectedTotal || 0,
-                        real: l.realTotal || 0,
-                        dif: l.difference || 0,
-                        difm: l.diffMethod || "",
-                        notas: l.notes || "",
-                        ...Object.fromEntries(list.map((m) => [`m_${m}`, l.perMethodStats?.[m]?.real ?? l.paymentMethodTotals?.[m] ?? 0])),
-                    })),
-                },
-            ]);
-            showToast("Excel de cierres descargado", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("No se pudo exportar el Excel", "error");
-        }
-    };
 
     return (
         <div className="page">
@@ -197,9 +163,8 @@ export default function ClosingScreen({ onViewSales }) {
                     <h2>{pastClosings ? "Cierres anteriores" : "Cierres de hoy"}</h2>
                     <div className="row-gap">
                         {pastClosings && <ChipGroup options={presetOptions} value={preset} onChange={setPreset} />}
-                        {/* El Excel incluye todos los cierres, así que requiere ver los anteriores */}
-                        {pastClosings && can("exportData") && (
-                            <button className="btn btn--ghost" onClick={exportExcel} disabled={!performanceLogs.length}>
+                        {can("exportData") && (
+                            <button className="btn btn--ghost" onClick={() => setExporting(true)} disabled={!performanceLogs.length}>
                                 <FileSpreadsheet size={18} /> Excel
                             </button>
                         )}
@@ -282,6 +247,36 @@ export default function ClosingScreen({ onViewSales }) {
                 )}
             </div>
             {cashOutOpen && <CashOutForm onClose={() => setCashOutOpen(false)} />}
+            {exporting && <ClosingExport preset={pastClosings ? preset : "today"} locked={!pastClosings} onClose={() => setExporting(false)} />}
         </div>
+    );
+}
+
+/** Descargar cierres: fechas y "solo con descuadre". */
+function ClosingExport({ preset, locked, onClose }) {
+    const { performanceLogs, paymentMethods } = useData();
+    const { showToast } = useUi();
+    const [dates, setDates] = useRangeFilter(locked ? "today" : preset);
+    const [onlyDiff, setOnlyDiff] = useState(false);
+    const range = locked ? DATE_PRESETS[0].range() : dates.range;
+    const logs = filterClosings(performanceLogs, { range, onlyDiff });
+
+    const download = async () => {
+        try {
+            const sheet = closingSheet(logs, paymentMethods.map((m) => m.name));
+            await exportWorkbook(`Cierres_${rangeTag(range)}${onlyDiff ? "_descuadres" : ""}.xlsx`, [sheet]);
+            showToast("Excel de cierres descargado", "success");
+        } catch (err) {
+            console.error(err);
+            showToast("No se pudo exportar el Excel", "error");
+            return false;
+        }
+    };
+
+    return (
+        <ExportDialog title="Descargar cierres" count={logs.length} noun={["cierre", "cierres"]} onDownload={download} onClose={onClose}>
+            <RangeField value={dates} onChange={setDates} locked={locked} />
+            <Toggle icon={AlertTriangle} label="Solo cierres con descuadre (sobrante o faltante)" checked={onlyDiff} onChange={setOnlyDiff} />
+        </ExportDialog>
     );
 }

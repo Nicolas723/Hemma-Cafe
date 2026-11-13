@@ -5,11 +5,12 @@ import { useUi } from "../../context/UiProvider";
 import { useAuth } from "../../context/AuthProvider";
 import { ChipGroup, EmptyState, PageHeader, SearchInput, StatCard, Toggle } from "../../components/ui";
 import { PaymentIcon } from "../../lib/paymentIcons";
-import { formatCurrency, formatDate, formatTime, toDate } from "../../lib/format";
-import { DATE_PRESETS, fromInputDate, inRange, startOfDay, toInputDate } from "../../lib/dates";
-import { exportWorkbook, today } from "../../lib/excel";
+import { formatCurrency, formatDate, formatTime } from "../../lib/format";
+import { DATE_PRESETS, fromInputDate, inRange, toInputDate } from "../../lib/dates";
 import { useDebounced } from "../../lib/hooks";
 import TransactionEditor from "./TransactionEditor";
+import SalesExport from "./SalesExport";
+import useSalesSource from "./useSalesSource";
 
 const PAGE = 150;
 
@@ -17,8 +18,8 @@ const paymentsOf = (t) => (t.payments?.length ? t.payments : [{ method: t.paymen
 const unitsOf = (t) => (t.items || []).reduce((s, i) => s + (i.partial ? 0 : i.cartQuantity || 1), 0);
 
 export default function HistoryScreen({ initialRange, onConsumeRange }) {
-    const { transactions, vendedores, paymentMethods, products, categories, liveSince, actions } = useData();
-    const { showToast, printReceipt } = useUi();
+    const { vendedores, paymentMethods } = useData();
+    const { printReceipt } = useUi();
     const { can } = useAuth();
     // Sin este permiso (cajero) solo se ven las ventas de hoy.
     const pastSales = can("pastSales");
@@ -33,41 +34,15 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
     const [expanded, setExpanded] = useState(null);
     const [editing, setEditing] = useState(null);
     const [limit, setLimit] = useState(PAGE);
-    const [archive, setArchive] = useState({ key: null, loading: false, rows: [] });
+    const [exporting, setExporting] = useState(false);
     const query = useDebounced(search.trim().toLowerCase(), 200);
 
     useEffect(() => {
         if (initialRange) onConsumeRange?.();
     }, [initialRange, onConsumeRange]);
 
-    // Si el rango empieza antes de la ventana en vivo, se consultan las ventas antiguas.
-    const needsArchive = !range[0] || startOfDay(range[0]) < liveSince;
-    const archiveKey = needsArchive ? `${range[0]?.getTime() || 0}-${range[1]?.getTime() || 0}` : null;
-    useEffect(() => {
-        if (!archiveKey || archive.key === archiveKey) return;
-        let cancelled = false;
-        setArchive({ key: archiveKey, loading: true, rows: [] });
-        actions
-            .loadTransactionsRange(range[0], range[1])
-            .then((rows) => !cancelled && setArchive({ key: archiveKey, loading: false, rows }))
-            .catch((err) => {
-                console.error(err);
-                if (!cancelled) setArchive({ key: archiveKey, loading: false, rows: [] });
-                showToast("No se pudieron cargar las ventas antiguas (¿sin internet?)", "warning");
-            });
-        return () => {
-            cancelled = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [archiveKey]);
-
-    const source = useMemo(() => {
-        if (!needsArchive) return transactions;
-        // Unir ventas en vivo + antiguas, sin duplicados.
-        const byId = new Map(archive.rows.map((t) => [t.id, t]));
-        transactions.forEach((t) => byId.set(t.id, t));
-        return [...byId.values()].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    }, [needsArchive, transactions, archive.rows]);
+    // Ventas en vivo + antiguas si el rango empieza antes de la ventana en vivo.
+    const { source, loading: archiveLoading } = useSalesSource(range);
 
     const filtered = useMemo(
         () =>
@@ -102,69 +77,6 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
         if (p) setRange(p.range());
     };
 
-    const exportExcel = async () => {
-        try {
-            const productById = Object.fromEntries(products.map((p) => [p.id, p]));
-            const catById = Object.fromEntries(categories.map((c) => [c.id, c.name]));
-            const rows = [];
-            filtered.forEach((t) => {
-                const d = toDate(t.date);
-                const pays = paymentsOf(t);
-                // El anticipo no tiene productos: una fila para que el dinero cuadre en el Excel.
-                if (t.type === "anticipo") {
-                    rows.push({ fecha: d.toLocaleDateString("es-CO"), hora: formatTime(d), tipo: "Anticipo pedido", vendedor: t.vendedorName || "N/A", cliente: t.customerName || "General", producto: "Anticipo", categoria: "", original: null, cantidad: 0, descuento: 0, subtotal: t.total, total: t.total, pago1: pays[0]?.method || "", pago2: "", notas: t.notes || "" });
-                    return;
-                }
-                (t.items || []).forEach((item, idx) =>
-                    rows.push({
-                        fecha: d.toLocaleDateString("es-CO"),
-                        hora: formatTime(d),
-                        tipo: t.type === "abono" ? "Abono crédito" : t.orderId ? "Pedido" : "Venta",
-                        vendedor: t.vendedorName || "N/A",
-                        cliente: t.customerName || "General",
-                        producto: item.name,
-                        categoria: catById[productById[item.id]?.categoryId] || "Sin categoría",
-                        original: item.originalPrice ?? item.price,
-                        cantidad: item.partial ? 0 : item.cartQuantity || 1,
-                        descuento: item.discount || 0,
-                        subtotal: item.subtotal ?? item.price * (item.cartQuantity || 1),
-                        total: idx === 0 ? t.total : null,
-                        pago1: pays[0]?.method || "",
-                        pago2: pays[1]?.method || "",
-                        notas: idx === 0 ? t.notes || "" : "",
-                    })
-                );
-            });
-            await exportWorkbook(`Ventas_${today()}.xlsx`, [
-                {
-                    name: "Ventas",
-                    columns: [
-                        { header: "Fecha", key: "fecha", width: 12 },
-                        { header: "Hora", key: "hora", width: 9 },
-                        { header: "Tipo", key: "tipo", width: 14 },
-                        { header: "Vendedor", key: "vendedor", width: 16 },
-                        { header: "Cliente", key: "cliente", width: 18 },
-                        { header: "Producto", key: "producto", width: 26 },
-                        { header: "Categoría", key: "categoria", width: 16 },
-                        { header: "Precio original", key: "original", money: true },
-                        { header: "Cantidad", key: "cantidad", width: 9 },
-                        { header: "Descuento", key: "descuento", money: true },
-                        { header: "Subtotal", key: "subtotal", money: true },
-                        { header: "Total venta", key: "total", money: true },
-                        { header: "Pago 1", key: "pago1", width: 12 },
-                        { header: "Pago 2", key: "pago2", width: 12 },
-                        { header: "Notas", key: "notas", width: 30 },
-                    ],
-                    rows,
-                },
-            ]);
-            showToast("Excel de ventas descargado", "success");
-        } catch (err) {
-            console.error(err);
-            showToast("No se pudo exportar el Excel", "error");
-        }
-    };
-
     const presetOptions = [...DATE_PRESETS.map((p) => ({ value: p.id, label: p.label })), { value: "custom", label: "Elegir fechas" }];
     const methodNames = useMemo(() => {
         const set = new Set(paymentMethods.map((m) => m.name));
@@ -176,7 +88,7 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
         <div className="page">
             <PageHeader icon={Receipt} title="Ventas" subtitle="Historial, filtros y reimpresión de recibos">
                 {can("exportData") && (
-                    <button className="btn btn--ghost" onClick={exportExcel} disabled={!filtered.length}>
+                    <button className="btn btn--ghost" onClick={() => setExporting(true)}>
                         <FileSpreadsheet size={18} /> Exportar Excel
                     </button>
                 )}
@@ -242,12 +154,12 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
             )}
 
             <div className="card card--flush">
-                {archive.loading && (
+                {archiveLoading && (
                     <div className="loading-row">
                         <Loader2 size={18} className="spin" /> Cargando ventas antiguas…
                     </div>
                 )}
-                {filtered.length === 0 && !archive.loading ? (
+                {filtered.length === 0 && !archiveLoading ? (
                     <EmptyState icon={Receipt} title="No hay ventas con estos filtros" />
                 ) : (
                     <div className="tx-list">
@@ -337,6 +249,13 @@ export default function HistoryScreen({ initialRange, onConsumeRange }) {
             </div>
 
             {editing && <TransactionEditor transaction={editing} onClose={() => setEditing(null)} />}
+            {exporting && (
+                <SalesExport
+                    locked={!pastSales}
+                    initial={{ preset: pastSales ? preset : "today", range, vendedor, method, onlyNotes, query }}
+                    onClose={() => setExporting(false)}
+                />
+            )}
         </div>
     );
 }
