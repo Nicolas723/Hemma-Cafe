@@ -854,6 +854,7 @@ textarea.input {
   flex-direction: column;
   width: 100%;
   max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem); /* iPhone: que los botones de abajo no queden tras la barra de Safari */
   background: var(--surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);

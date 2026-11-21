@@ -2,6 +2,8 @@
 .app {
   display: flex;
   height: 100vh;
+  /* Alto visible real: en Safari del iPhone 100vh ignora sus barras y el menú de abajo quedaba oculto. */
+  height: 100dvh;
 }
 .main {
   flex: 1;
